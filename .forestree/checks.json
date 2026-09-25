@@ -1,0 +1,13 @@
+{
+  "version": 2,
+  "checks": [
+    {
+      "id": "test",
+      "name": "pytest (razerui)",
+      "kind": "test",
+      "command": "QT_QPA_PLATFORM=offscreen python3 -m pytest -q",
+      "enabled": true,
+      "scope": "repo"
+    }
+  ]
+}
