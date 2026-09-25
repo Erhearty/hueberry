@@ -85,6 +85,68 @@ If `python3-openrazer` is not installed, the daemon is not running, or no device
 are found, Hueberry does not crash: it shows an empty state with the error message
 and *Start daemon* / *Retry* buttons.
 
+## Macros
+
+Hueberry can bind a macro to any key or button of any input device, including
+on Wayland. A small helper process, the *macro engine*
+(`python -m hueberry.macro_engine`, started by Hueberry itself, never by hand),
+grabs a device that has enabled macros, re-emits all its other events through a
+virtual device (named `hueberry-virtual:<device name>`) and plays a macro when
+its trigger is pressed. Macros are stored in `~/.config/hueberry/macros.json`
+(or `$XDG_CONFIG_HOME/hueberry/macros.json`); an unreadable file is moved aside
+to `macros.json.bak`.
+
+### Requirements
+
+- python-evdev, either from your distro or via the `macros` extra:
+
+  ```sh
+  # Debian / Ubuntu
+  sudo apt install python3-evdev
+  # Fedora
+  sudo dnf install python3-evdev
+  # or, in a venv
+  pip install -e .[macros]
+  ```
+
+- Access to `/dev/uinput` and to `/dev/input/event*`. Install the shipped udev
+  rule and join the `input` group, then log out and back in:
+
+  ```sh
+  sudo install -m 0644 data/udev/70-hueberry-uinput.rules /etc/udev/rules.d/
+  sudo udevadm control --reload-rules && sudo udevadm trigger
+  sudo usermod -aG input "$USER"
+  ```
+
+  **Security caveat:** every program you run as a member of the `input` group
+  can read all keystrokes (including passwords) and inject arbitrary input.
+  Only do this on a machine where you accept that.
+
+### When macros are active
+
+- Macros work only while Hueberry is running – with its window open *or*
+  minimised to the system tray. Closing the window keeps Hueberry in the tray;
+  *Quit* from the tray menu stops it, and with it all macros. The
+  *Keep running in the background when closed* setting turns this off, so
+  closing the window quits.
+- The tray menu entry *Start Hueberry at login* writes
+  `~/.config/autostart/hueberry.desktop`, which starts Hueberry with
+  `--background` (tray only, no window).
+- On GNOME the tray icon needs the *AppIndicator and KStatusNotifierItem
+  Support* extension.
+- The engine exits together with Hueberry: if Hueberry quits or crashes, every
+  grabbed device is released immediately and works normally again.
+
+### Conflicts and limitations
+
+- OpenRazer's own M-key / macro mode (and any other tool that grabs input
+  devices) conflicts with Hueberry's macros. If another program already holds
+  the device, Hueberry shows it as **busy** and leaves it alone; turn off the
+  other tool's macro mode and reload.
+- Macro steps are key/button presses, releases, taps and delays only. Running
+  shell commands is intentionally unsupported, and a `macros.json` containing
+  such steps is rejected.
+
 ## Development and tests
 
 ```sh
@@ -92,5 +154,6 @@ pip install -e .[dev]
 python -m pytest
 ```
 
-The test suite uses a fake `openrazer` package (see `tests/conftest.py`), so it
-runs without the daemon or real hardware.
+The test suite uses fake `openrazer` and `evdev` packages (see `tests/conftest.py`
+and `tests/fake_evdev.py`), so it runs without the daemon, python-evdev or real
+hardware.

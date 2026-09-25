@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
+#
+# Lets members of the "input" group create virtual input devices through
+# /dev/uinput, which the Hueberry macro engine needs to re-emit the events of
+# a grabbed device and to type macros. Reading /dev/input/event* is already
+# granted to the "input" group by the default udev rules of most distros.
+#
+# SECURITY: any program run by a member of "input" can read every keystroke
+# and inject arbitrary input. Only install this if you accept that.
+#
+# Install:
+#   sudo install -m 0644 70-hueberry-uinput.rules /etc/udev/rules.d/
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+#   sudo usermod -aG input "$USER"   # then log out and back in
+KERNEL=="uinput", SUBSYSTEM=="misc", OPTIONS+="static_node=uinput", GROUP="input", MODE="0660"
