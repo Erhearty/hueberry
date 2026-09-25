@@ -3,6 +3,8 @@
 """Tests for the main window (offscreen, synchronous worker)."""
 
 import pytest
+from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QListWidget, QSplitter
 
 from hueberry.backend.daemon import DaemonService
@@ -28,8 +30,24 @@ def _run_sync(fn, on_done=None, on_error=None):
     return None
 
 
+class FakeTray(QObject):
+    """Stands in for TrayController: signals plus a settable close_to_tray."""
+
+    toggle_window_requested = pyqtSignal()
+    status_message = pyqtSignal(str)
+
+    def __init__(self, close_to_tray):
+        super().__init__()
+        self.close_to_tray = close_to_tray
+        self.statuses = []
+
+    def set_status(self, text):
+        self.statuses.append(text)
+
+
 @pytest.fixture
 def window(qtbot, tmp_path, monkeypatch, fake_manager_factory, make_device):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.setattr(worker, "run_async", _run_sync)
     fake_manager_factory.devices = [
         make_device(name="Test Mouse", device_type="mouse", serial=MOUSE_SERIAL,
@@ -57,7 +75,8 @@ def _tab_texts(win):
 
 def test_no_list_or_daemon_tab(window):
     win, _service = window
-    assert not win.findChildren(QListWidget)
+    lists = [lst for lst in win.findChildren(QListWidget) if not win.macros_page.isAncestorOf(lst)]
+    assert not lists
     assert not win.findChildren(QSplitter)
     assert all("Daemo" not in text for text in _tab_texts(win))
     assert not win.daemon_dialog.isModal()
@@ -300,3 +319,77 @@ def test_panel_status_reaches_status_bar(window):
     win, _service = window
     win.lighting_panel.status.emit("hello")
     assert win.statusBar().currentMessage() == "hello"
+
+
+def _tray_window(qtbot, service, close_to_tray):
+    tray = FakeTray(close_to_tray)
+    win = MainWindow(service, tray=tray)
+    qtbot.addWidget(win)
+    return win, tray
+
+
+def test_macros_page_opens_and_returns_home(window):
+    win, _service = window
+    _connect(win)
+    win.macros_action.trigger()
+    assert win.stack.currentWidget() is win.macros_page
+    win.macros_page.back_button.click()
+    assert win.stack.currentWidget() is win.home_page
+
+
+def test_macros_button_opens_macros_page(window):
+    win, _service = window
+    win.macros_button.click()
+    assert win.stack.currentWidget() is win.macros_page
+    assert win.macros_action.shortcut().toString() == "Ctrl+M"
+
+
+def test_macros_status_reaches_status_bar(window):
+    win, _service = window
+    win.macros_page.status.emit("macros saved")
+    assert win.statusBar().currentMessage() == "macros saved"
+
+
+def test_tray_status_forwarding(window, qtbot):
+    _win, service = window
+    win, tray = _tray_window(qtbot, service, close_to_tray=True)
+    win.macros_page.engine_summary.emit("running")
+    assert tray.statuses[-1] == "running"
+    tray.status_message.emit("tray says hi")
+    assert win.statusBar().currentMessage() == "tray says hi"
+
+
+def test_close_hides_to_tray(window, qtbot):
+    _win, service = window
+    win, _tray = _tray_window(qtbot, service, close_to_tray=True)
+    win.show()
+    with qtbot.assertNotEmitted(win.quit_requested):
+        event = QCloseEvent()
+        win.closeEvent(event)
+    assert not event.isAccepted()
+    assert not win.isVisible()
+
+
+def test_close_quits_when_close_to_tray_off(window, qtbot):
+    _win, service = window
+    win, _tray = _tray_window(qtbot, service, close_to_tray=False)
+    with qtbot.waitSignal(win.quit_requested, timeout=0):
+        event = QCloseEvent()
+        win.closeEvent(event)
+    assert event.isAccepted()
+
+
+def test_close_without_tray_accepts(window):
+    win, _service = window
+    event = QCloseEvent()
+    win.closeEvent(event)
+    assert event.isAccepted()
+
+
+def test_tray_toggle_shows_and_hides(window, qtbot):
+    _win, service = window
+    win, tray = _tray_window(qtbot, service, close_to_tray=True)
+    tray.toggle_window_requested.emit()
+    assert win.isVisible()
+    tray.toggle_window_requested.emit()
+    assert not win.isVisible()

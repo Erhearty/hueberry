@@ -1,7 +1,7 @@
 <!-- generated:start cap:overview-intro -->
 # Architecture Overview
 
-2 component(s) declared on the architecture canvas. Topology: [system-map.md](system-map.md).
+3 component(s) declared on the architecture canvas. Topology: [system-map.md](system-map.md).
 <!-- generated:end cap:overview-intro -->
 
 
@@ -22,3 +22,7 @@ External, independently-packaged system daemon (OpenRazer project) that owns dir
 <!-- generated:start comp:razerui -->
 ## RazerUI (`razerui`, FRONTEND)
 <!-- generated:end comp:razerui -->
+
+<!-- generated:start comp:macro-engine -->
+## Macro Engine (`macro-engine`, BACKEND)
+<!-- generated:end comp:macro-engine -->

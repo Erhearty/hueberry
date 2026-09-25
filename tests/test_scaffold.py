@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from fake_app import FakePool, FakeWindow, install
+
 SPDX_LICENSE = "# SPDX-License-Identifier: GPL-3.0-or-later"
 SPDX_COPYRIGHT = "# SPDX-FileCopyrightText: 2025 Hueberry contributors"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -19,69 +21,17 @@ def test_package_has_version():
     assert hueberry.__version__ == "0.1.0"
 
 
-class _FakeApp:
-    """Stands in for QApplication so main() does not start an event loop."""
-
-    def __init__(self, argv):
-        self.argv = argv
-        self.name = None
-
-    def setApplicationName(self, name):
-        self.name = name
-
-    def exec(self):
-        return 0
-
-
-class _FakeWindow:
-    """Stands in for MainWindow; records show() and service actions."""
-
-    created: list = []
-
-    def __init__(self, service):
-        self.service = service
-        self.shown = False
-        self.actions = []
-        _FakeWindow.created.append(self)
-
-    def show(self):
-        self.shown = True
-
-    def run_service_action(self, label, fn):
-        self.actions.append((label, fn))
-
-
-class _FakePool:
-    """Stands in for QThreadPool; records waitForDone timeouts."""
-
-    waits: list = []
-
-    @classmethod
-    def globalInstance(cls):
-        return cls()
-
-    def waitForDone(self, msecs):
-        _FakePool.waits.append(msecs)
-        return True
-
-
 def test_main_returns_zero(monkeypatch):
     """main() builds the app and window, starts a connect and returns exec()'s code."""
     import hueberry.app as app
 
-    monkeypatch.setattr(app, "QApplication", _FakeApp)
-    monkeypatch.setattr(app, "MainWindow", _FakeWindow)
-    monkeypatch.setattr(app, "QThreadPool", _FakePool)
-    themed = []
-    monkeypatch.setattr(app, "apply_theme", themed.append)
-    monkeypatch.setattr(_FakeWindow, "created", [])
-    monkeypatch.setattr(_FakePool, "waits", [])
+    themed = install(monkeypatch, app)
     assert app.main([]) == 0
-    assert len(themed) == 1 and isinstance(themed[0], _FakeApp)
-    (window,) = _FakeWindow.created
+    assert len(themed) == 1 and themed[0].name == app.APP_NAME
+    (window,) = FakeWindow.created
     assert window.shown
     assert [label for label, _fn in window.actions] == ["Connect"]
-    assert _FakePool.waits == [app.SHUTDOWN_WAIT_MS]
+    assert FakePool.waits == [app.SHUTDOWN_WAIT_MS]
 
 
 def test_openrazer_client_is_fake(fake_client, fake_manager_factory):
