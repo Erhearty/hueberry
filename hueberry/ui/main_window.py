@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QMainWindow, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
 )
 
+from hueberry.backend import animator
 from hueberry.backend.daemon import DaemonService
 from hueberry.backend.devices import DeviceInfo, describe_device
 from hueberry.ui import worker
@@ -238,6 +239,7 @@ class MainWindow(QMainWindow):
 
     def _reload(self) -> None:
         devices = self._service.devices if self._service.connected else []
+        self._refresh_animations(devices)
         self.daemon_panel.refresh()
         self.daemon_bar.refresh()
         self._entries = [(dev, describe_device(dev)) for dev in devices]
@@ -252,6 +254,14 @@ class MainWindow(QMainWindow):
             self._open_device(self._last_serial)
         else:
             self._show_home()
+
+    def _refresh_animations(self, devices: list[Any]) -> None:
+        """Rebind preset animations to the new device objects; drop lost devices."""
+        try:
+            animator.shared_animator().refresh(devices)
+        except Exception as exc:  # a failing animator must not break the reload
+            logger.exception("Refreshing lighting animations failed")
+            self.show_status(f"Animation error: {exc}")
 
     def _entry_for(self, serial: str | None) -> tuple[Any, DeviceInfo] | None:
         for dev, info in self._entries:

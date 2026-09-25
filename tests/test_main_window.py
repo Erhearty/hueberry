@@ -7,6 +7,8 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QListWidget, QSplitter
 
+import hueberry.app as app_module
+from hueberry.backend import animator
 from hueberry.backend.daemon import DaemonService
 from hueberry.ui import worker
 from hueberry.ui.main_window import MainWindow
@@ -313,6 +315,60 @@ def test_start_daemon_enabled_when_not_connected(window, fake_manager_factory):
     fake_manager_factory.fail = True
     _connect(win)
     assert win.empty_page.start_button.isEnabled()
+
+
+class _RecordingAnimator:
+    """Stands in for the shared animator; records refresh/shutdown calls."""
+
+    def __init__(self, fail=False):
+        self.fail = fail
+        self.refreshed = []
+        self.shutdowns = 0
+
+    def refresh(self, devices):
+        if self.fail:
+            raise RuntimeError("animator broke")
+        self.refreshed.append([dev.serial for dev in devices])
+
+    def shutdown(self):
+        self.shutdowns += 1
+
+
+def test_reload_refreshes_animations(window, monkeypatch, fake_manager_factory):
+    win, _service = window
+    recorder = _RecordingAnimator()
+    monkeypatch.setattr(animator, "shared_animator", lambda: recorder)
+    _connect(win)
+    assert recorder.refreshed[-1] == [MOUSE_SERIAL, KEYBOARD_SERIAL]
+    fake_manager_factory.devices = fake_manager_factory.devices[:1]
+    win.repoll_action.trigger()
+    assert recorder.refreshed[-1] == [MOUSE_SERIAL]
+
+
+def test_reload_survives_animator_error(window, monkeypatch):
+    win, _service = window
+    monkeypatch.setattr(animator, "shared_animator", lambda: _RecordingAnimator(fail=True))
+    win.reload()
+    assert win.statusBar().currentMessage() == "Animation error: animator broke"
+
+
+class _Signal:
+    def __init__(self):
+        self.slots = []
+
+    def connect(self, slot):
+        self.slots.append(slot)
+
+
+def test_app_stops_animations_on_quit(monkeypatch):
+    recorder = _RecordingAnimator()
+    monkeypatch.setattr(animator, "shared_animator", lambda: recorder)
+    fake_app = type("FakeApp", (), {})()
+    fake_app.aboutToQuit = _Signal()
+    app_module._stop_animations_on_quit(fake_app)
+    (slot,) = fake_app.aboutToQuit.slots
+    slot()
+    assert recorder.shutdowns == 1
 
 
 def test_panel_status_reaches_status_bar(window):
