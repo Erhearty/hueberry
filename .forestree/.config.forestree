@@ -55,6 +55,14 @@
       "id": "razerui",
       "name": "RazerUI",
       "type": "frontend"
+    },
+    {
+      "canvas": {
+        "widgets": []
+      },
+      "id": "macro-engine",
+      "name": "Macro Engine",
+      "type": "backend"
     }
   ],
   "connections": [
@@ -62,6 +70,11 @@
       "from": "razerui",
       "protocol": "D-Bus (via system openrazer.client Python library); lifecycle control via subprocess (systemctl --user is-active/restart openrazer-daemon, else openrazer-daemon -s / killall / openrazer-daemon)",
       "to": "openrazer-daemon"
+    },
+    {
+      "from": "razerui",
+      "protocol": "Unix domain socket IPC (child process spawned via subprocess)",
+      "to": "macro-engine"
     }
   ],
   "forestreeFormatVersion": true,
@@ -300,6 +313,10 @@
   "projectName": "Forestree Agent Workspace",
   "repoId": "6799db62-29df-42b9-b646-93ba45ed8434",
   "topologyLayout": {
+    "macro-engine": {
+      "x": 460,
+      "y": 200
+    },
     "razerui": {
       "x": 200,
       "y": 200

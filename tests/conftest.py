@@ -1,16 +1,20 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # SPDX-FileCopyrightText: 2025 Hueberry contributors
-"""Shared fixtures: a fake, API-shaped ``openrazer.client`` package.
+"""Shared fixtures: fake, API-shaped ``openrazer.client`` and ``evdev`` packages.
 
-The fake mirrors the public surface of the real openrazer client library
-(DeviceManager, DaemonNotFound, constants, devices with ``fx`` / ``fx.misc``)
-so tests never touch the real daemon, D-Bus or hardware.
+The openrazer fake mirrors the public surface of the real openrazer client
+library (DeviceManager, DaemonNotFound, constants, devices with ``fx`` /
+``fx.misc``); the evdev fake (see ``fake_evdev.py``) mirrors python-evdev's
+devices, uinput and ecodes. Tests never touch the real daemon, D-Bus, input
+devices or /dev/uinput.
 """
 
 import sys
 import types
 
 import pytest
+
+from fake_evdev import FakeInputDevice, FakeUInput, InputEvent, UInputError, make_ecodes
 
 FAKE_DAEMON_VERSION = "3.12.1-fake"
 FAKE_CLIENT_VERSION = "3.12.1"
@@ -218,6 +222,41 @@ def _fake_openrazer(monkeypatch):
     monkeypatch.setitem(sys.modules, "openrazer.client", client)
     monkeypatch.setitem(sys.modules, "openrazer.client.constants", client.constants)
     return client, factory
+
+
+def build_fake_evdev() -> types.ModuleType:
+    """Create a fresh fake ``evdev`` module with its own device registry."""
+    module = types.ModuleType("evdev")
+    module.__path__ = []
+    call_log: list = []
+    device_cls = type("InputDevice", (FakeInputDevice,), {"registry": {}, "call_log": call_log})
+    uinput_cls = type("UInput", (FakeUInput,),
+                      {"instances": [], "call_log": call_log, "create_error": None})
+    module.ecodes = make_ecodes()
+    module.InputEvent = InputEvent
+    module.InputDevice = device_cls
+    module.UInput = uinput_cls
+    module.UInputError = UInputError
+    module.list_devices = lambda input_device_dir="/dev/input": sorted(device_cls.registry)
+    module.call_log = call_log
+    return module
+
+
+@pytest.fixture(autouse=True)
+def _fake_evdev(monkeypatch):
+    """Install the fake evdev into ``sys.modules`` for every test."""
+    module = build_fake_evdev()
+    monkeypatch.setitem(sys.modules, "evdev", module)
+    monkeypatch.setitem(sys.modules, "evdev.ecodes", module.ecodes)
+    yield module
+    for device in list(module.InputDevice.registry.values()):
+        device.close()
+
+
+@pytest.fixture
+def fake_evdev(_fake_evdev):
+    """The fake ``evdev`` module (register devices with ``InputDevice(path, name=...)``)."""
+    return _fake_evdev
 
 
 @pytest.fixture

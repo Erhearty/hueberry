@@ -10,10 +10,10 @@ import logging
 from functools import partial
 from typing import Any, Callable
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QCloseEvent, QKeySequence
 from PyQt6.QtWidgets import (
-    QDialog, QDialogButtonBox, QMainWindow, QStackedWidget, QVBoxLayout, QWidget,
+    QDialog, QDialogButtonBox, QMainWindow, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from hueberry.backend import animator
@@ -25,6 +25,7 @@ from hueberry.ui.daemon_status_bar import DaemonStatusBar
 from hueberry.ui.device_cards import DeviceGrid
 from hueberry.ui.device_page import DevicePage
 from hueberry.ui.empty_state import EmptyStatePanel
+from hueberry.ui.macros_page import MacrosPage
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,9 @@ DAEMON_DIALOG_TITLE = "OpenRazer daemon"
 NO_DEVICES_TEXT = "The OpenRazer daemon reports no devices."
 NOT_CONNECTED_TEXT = "Not connected to the OpenRazer daemon."
 UNKNOWN_ERROR = "unknown error"
+MACROS_TEXT = "&Macros\u2026"
+MACROS_SHORTCUT = "Ctrl+M"
+MACROS_TIP = "Record, edit and bind macros (Ctrl+M)"
 
 
 class MainWindow(QMainWindow):
@@ -46,11 +50,18 @@ class MainWindow(QMainWindow):
 
     The daemon status bar (Restart / Re-scan / Daemon…) is always visible; the
     Daemon… button opens the :class:`DaemonPanel` in a non-modal dialog.
+    With a ``tray`` whose close-to-tray option is on, closing only hides the
+    window; otherwise it emits ``quit_requested`` (when a tray is given).
     """
 
-    def __init__(self, service: DaemonService, parent: QWidget | None = None) -> None:
+    quit_requested = pyqtSignal()
+
+    def __init__(self, service: DaemonService, engine: Any = None, tray: Any = None,
+                 parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._service = service
+        self._engine = engine
+        self._tray = tray
         self._entries: list[tuple[Any, DeviceInfo]] = []
         self._last_serial: str | None = None  # last opened device, kept across reloads
         self._current_serial: str | None = None  # selected device, if it is present
@@ -61,6 +72,9 @@ class MainWindow(QMainWindow):
         self._build_pages()
         self._build_daemon_dialog()
         self._build_actions()
+        self.macros_button = QPushButton(MACROS_TEXT, self)
+        self.macros_button.setToolTip(MACROS_TIP)
+        self.statusBar().addPermanentWidget(self.macros_button)
         self.daemon_bar = DaemonStatusBar(self._service, self)
         self.statusBar().addPermanentWidget(self.daemon_bar)
         self._connect_signals()
@@ -77,8 +91,9 @@ class MainWindow(QMainWindow):
         self.mouse_page = self.device_page.mouse_page
         self.mouse_panel = self.device_page.mouse_panel
         self.empty_page = EmptyStatePanel(self)
+        self.macros_page = MacrosPage(self._engine, self)
         self.stack = QStackedWidget(self)
-        for page in (self.home_page, self.device_page, self.empty_page):
+        for page in (self.home_page, self.device_page, self.empty_page, self.macros_page):
             self.stack.addWidget(page)
         self.setCentralWidget(self.stack)
 
@@ -98,7 +113,9 @@ class MainWindow(QMainWindow):
         self.repoll_action.setShortcut(QKeySequence(QKeySequence.StandardKey.Refresh))
         self.restart_action = QAction(RESTART_TEXT, self)
         self.restart_action.setShortcut(QKeySequence(RESTART_SHORTCUT))
-        for action in (self.repoll_action, self.restart_action):
+        self.macros_action = QAction(MACROS_TEXT, self)
+        self.macros_action.setShortcut(QKeySequence(MACROS_SHORTCUT))
+        for action in (self.repoll_action, self.restart_action, self.macros_action):
             action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
             self.addAction(action)
 
@@ -119,6 +136,17 @@ class MainWindow(QMainWindow):
             panel.status.connect(self.show_status)
         self.daemon_panel.daemon_changed.connect(self.reload)
         self.daemon_panel.busy_changed.connect(self._on_panel_busy)
+        self._connect_macros()
+
+    def _connect_macros(self) -> None:
+        self.macros_action.triggered.connect(self.show_macros)
+        self.macros_button.clicked.connect(self.show_macros)
+        self.macros_page.back_requested.connect(self._leave_macros)
+        self.macros_page.status.connect(self.show_status)
+        if self._tray is not None:
+            self.macros_page.engine_summary.connect(self._tray.set_status)
+            self._tray.toggle_window_requested.connect(self.toggle_visible)
+            self._tray.status_message.connect(self.show_status)
 
     # -- public API ----------------------------------------------------------
 
@@ -155,7 +183,47 @@ class MainWindow(QMainWindow):
             logger.exception("Could not start %s", label)
             self._on_action_failed(label, str(exc))
 
+    def show_macros(self) -> None:
+        """Open the Macros page with fresh engine state."""
+        self.macros_page.refresh()
+        self.stack.setCurrentWidget(self.macros_page)
+        self.macros_page.device_list.setFocus()
+
+    def start_engine(self) -> None:
+        """Start the macro engine in the background (no-op without an engine)."""
+        self.macros_page.start_engine()
+
+    def show_and_raise(self) -> None:
+        """Show the window (e.g. from the tray or a second launch) and bring it forward."""
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def toggle_visible(self) -> None:
+        """Hide a visible window, show a hidden or minimised one."""
+        if self.isVisible() and not self.isMinimized():
+            self.hide()
+        else:
+            self.show_and_raise()
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt override
+        """Hide to the tray when enabled; otherwise close (and quit, with a tray)."""
+        if self._tray is not None and self._tray.close_to_tray:
+            event.ignore()
+            self.hide()
+            self.show_status("Hueberry keeps running in the tray")
+            return
+        event.accept()
+        if self._tray is not None:
+            self.quit_requested.emit()
+
     # -- internals -----------------------------------------------------------
+
+    def _leave_macros(self) -> None:
+        self.stack.setCurrentWidget(self.home_page)
+        self.reload()
+        if self.stack.currentWidget() is self.home_page:
+            self.home_page.focus_selected()
 
     def _rescan(self) -> None:
         self.run_service_action(REPOLL_TEXT, self._service.repoll)
@@ -176,6 +244,8 @@ class MainWindow(QMainWindow):
         self.daemon_bar.refresh()
         self._entries = [(dev, describe_device(dev)) for dev in devices]
         self.home_page.set_devices([info for _dev, info in self._entries])
+        if self.stack.currentWidget() is self.macros_page:
+            return  # stay on the Macros page; the grid is updated for later
         if not self._entries:
             self._show_empty()
             return

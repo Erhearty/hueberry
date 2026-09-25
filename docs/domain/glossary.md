@@ -24,3 +24,7 @@ Canonical component names projected from the architecture canvas.
 <!-- generated:start comp:razerui -->
 - **RazerUI** (`razerui`) - frontend component.
 <!-- generated:end comp:razerui -->
+
+<!-- generated:start comp:macro-engine -->
+- **Macro Engine** (`macro-engine`) - backend component.
+<!-- generated:end comp:macro-engine -->

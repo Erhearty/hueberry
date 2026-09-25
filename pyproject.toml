@@ -21,6 +21,9 @@ dependencies = ["PyQt6>=6.4"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7", "pytest-qt>=4"]
+# Macro engine (evdev grab + uinput). Often better installed from the distro
+# (python3-evdev); the engine runs only as a child of Hueberry, so no script.
+macros = ["evdev>=1.6"]
 
 [project.scripts]
 hueberry = "hueberry.app:main"
