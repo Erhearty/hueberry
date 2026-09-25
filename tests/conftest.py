@@ -23,6 +23,9 @@ DEFAULT_MAX_DPI = 16000
 DEFAULT_DPI = (800, 800)
 DEFAULT_POLL_RATE = 1000
 DEFAULT_POLL_RATES = [125, 500, 1000]
+MATRIX_CAPABILITY = "lighting_led_matrix"
+MATRIX_ROWS = 6
+MATRIX_COLS = 22
 
 
 class DaemonNotFound(Exception):
@@ -68,6 +71,29 @@ class _Recorder:
         self._record("breath_dual", red, green, blue, red2, green2, blue2)
 
 
+class FakeAdvanced:
+    """Fake of ``RazerAdvancedFX``: a per-key matrix with ``draw`` / ``restore``.
+
+    ``matrix`` is a dict keyed by ``(row, col)`` so ``matrix[row, col] = rgb``
+    works like the real ``Frame``; ``draws`` keeps a copy of every drawn frame.
+    """
+
+    def __init__(self, rows: int, cols: int) -> None:
+        self.rows = rows
+        self.cols = cols
+        self.matrix: dict[tuple[int, int], tuple] = {}
+        self.draws: list[dict] = []
+        self.restore_calls = 0
+
+    def draw(self) -> None:
+        """Record a snapshot of the current matrix."""
+        self.draws.append(dict(self.matrix))
+
+    def restore(self) -> None:
+        """Record a restore request."""
+        self.restore_calls += 1
+
+
 class FakeFx(_Recorder):
     """Fake of ``RazerFX`` (main device lighting)."""
 
@@ -75,6 +101,7 @@ class FakeFx(_Recorder):
         super().__init__()
         self._capabilities = capabilities
         self.misc = types.SimpleNamespace(**{zone: None for zone in MISC_ZONE_NAMES})
+        self.advanced: FakeAdvanced | None = None
 
     def has(self, capability: str) -> bool:
         """Mirror ``BaseRazerFX.has``: auto-prefixes ``lighting_``."""
@@ -210,7 +237,8 @@ def make_device():
     """Factory fixture building ``FakeDevice`` objects.
 
     ``zones`` names misc zones (e.g. ``"logo"``, ``"scroll_wheel"``) to populate
-    with ``FakeLed`` objects; others stay ``None`` like the real client.
+    with ``FakeLed`` objects; others stay ``None`` like the real client. A
+    device with ``lighting_led_matrix`` gets a ``FakeAdvanced`` matrix.
     """
 
     def _make(name="Razer Test Mouse", device_type="mouse", serial="PM0000000000001",
@@ -218,6 +246,8 @@ def make_device():
         device = FakeDevice(name, device_type, serial, capabilities)
         for zone in zones:
             setattr(device.fx.misc, zone, FakeLed(zone))
+        if MATRIX_CAPABILITY in capabilities:
+            device.fx.advanced = FakeAdvanced(MATRIX_ROWS, MATRIX_COLS)
         return device
 
     return _make

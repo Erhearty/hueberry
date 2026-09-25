@@ -5,6 +5,9 @@
 Backend calls that touch the device are submitted with
 ``worker.run_async(...)`` - looked up on the :mod:`hueberry.ui.worker` module at
 call time, so tests can monkeypatch ``worker.run_async`` to run synchronously.
+The Erheart preset is driven by ``animator.shared_animator()``, likewise looked
+up at call time; it is stopped (in the worker job, never on the UI thread)
+before any other effect is applied.
 """
 
 import logging
@@ -16,6 +19,7 @@ from PyQt6.QtWidgets import (
     QComboBox, QFormLayout, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget,
 )
 
+from hueberry.backend import animator, presets
 from hueberry.backend.devices import ZoneInfo, list_zones
 from hueberry.backend.lighting import (
     EFFECTS, PARAM_COLOUR1, PARAM_COLOUR2, PARAM_DIRECTION, PARAM_TIME, REACTIVE_LONG,
@@ -38,6 +42,7 @@ ROW_ZONE = "zone"
 ROW_EFFECT = "effect"
 ROW_BRIGHTNESS = "brightness"
 PARAM_ROWS = (PARAM_COLOUR1, PARAM_COLOUR2, PARAM_TIME, PARAM_DIRECTION)
+PRESET_ERHEART = f"preset:{presets.PRESET_KEY}"  # effect combo data of the Erheart preset
 
 
 def _choice_combo(choices: tuple[tuple[str, int], ...], parent: QWidget) -> QComboBox:
@@ -45,6 +50,23 @@ def _choice_combo(choices: tuple[tuple[str, int], ...], parent: QWidget) -> QCom
     for text, value in choices:
         combo.addItem(text, value)
     return combo
+
+
+def _stop_preset_then_apply(dev: Any, zone: ZoneInfo, effect_key: str,
+                            params: dict[str, Any]) -> Any:
+    """Worker job: stop an Erheart animation on ``dev``, then apply an effect.
+
+    Stopping may wait for one animation frame and restores the matrix over
+    D-Bus, so it runs here rather than on the UI thread. A failed stop is
+    logged and never prevents the apply.
+    """
+    serial = animator.device_serial(dev)
+    if serial is not None:
+        try:
+            animator.shared_animator().stop(serial)
+        except Exception:  # the new effect is still applied
+            logger.exception("Could not stop the %s preset", presets.PRESET_LABEL)
+    return apply_effect(dev, zone, effect_key, params)
 
 
 class LightingPanel(QWidget):
@@ -153,6 +175,20 @@ class LightingPanel(QWidget):
         key = self.effect_combo.currentData()
         return EFFECTS.get(key) if key is not None else None
 
+    def preset_selected(self) -> bool:
+        """True when the Erheart preset is the selected effect."""
+        return self.effect_combo.currentData() == PRESET_ERHEART
+
+    def _has_selection(self) -> bool:
+        return self.current_effect() is not None or self.preset_selected()
+
+    def _offers_preset(self) -> bool:
+        try:
+            return animator.supports(self._dev)
+        except Exception:  # never let a device error break the panel
+            logger.warning("Could not check Erheart support", exc_info=True)
+            return False
+
     def _on_zone_changed(self, _index: int = 0) -> None:
         zone = self.current_zone()
         effects = supported_effects(self._dev, zone) if zone is not None else []
@@ -160,6 +196,8 @@ class LightingPanel(QWidget):
         self.effect_combo.clear()
         for effect in effects:
             self.effect_combo.addItem(effect.label, effect.key)
+        if zone is not None and self._offers_preset():
+            self.effect_combo.addItem(presets.PRESET_LABEL, PRESET_ERHEART)
         self.effect_combo.blockSignals(False)
         self.zone_combo.setEnabled(bool(self._zones))
         self._update_brightness(zone)
@@ -173,7 +211,7 @@ class LightingPanel(QWidget):
             self._param_widgets[name].setVisible(visible)
             self._labels[name].setVisible(visible)
         self.effect_combo.setEnabled(self.effect_combo.count() > 0)
-        self.apply_button.setEnabled(effect is not None and not self._writing)
+        self.apply_button.setEnabled(self._has_selection() and not self._writing)
 
     def _update_brightness(self, zone: ZoneInfo | None) -> None:
         supported = zone is not None and supports_brightness(self._dev, zone)
@@ -202,7 +240,7 @@ class LightingPanel(QWidget):
 
     def _set_writing(self, writing: bool) -> None:
         self._writing = writing
-        self.apply_button.setEnabled(not writing and self.current_effect() is not None)
+        self.apply_button.setEnabled(not writing and self._has_selection())
 
     def _submit(self, fn: Callable[[], Any], on_done: Callable[[Any], None]) -> None:
         self._set_writing(True)
@@ -222,14 +260,28 @@ class LightingPanel(QWidget):
 
     def _on_apply(self) -> None:
         dev, zone, effect = self._dev, self.current_zone(), self.current_effect()
-        if dev is None or zone is None or effect is None:
+        preset = self.preset_selected()
+        if dev is None or zone is None or (effect is None and not preset):
             self.status.emit("No lighting effect selected")
             return
         if self._writing:
             return
+        if preset:
+            self._start_preset(dev)
+            return
         params = self._collect_params()
-        self._submit(partial(apply_effect, dev, zone, effect.key, params),
+        self._submit(partial(_stop_preset_then_apply, dev, zone, effect.key, params),
                      partial(self._on_apply_done, effect.label))
+
+    def _start_preset(self, dev: Any) -> None:
+        label = presets.PRESET_LABEL
+        try:
+            started = animator.shared_animator().start(dev)
+        except Exception as exc:  # never let an exception escape a slot
+            logger.exception("Could not start the %s preset", label)
+            self.status.emit(f"Lighting error: {exc}")
+            return
+        self.status.emit(f"Applied {label}" if started else f"The device did not accept {label}")
 
     @worker.ignore_deleted
     def _on_apply_done(self, label: str, ok: Any) -> None:

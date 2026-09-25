@@ -9,12 +9,14 @@ from PyQt6 import sip
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QAbstractSlider, QWidget
 
+from hueberry.backend import animator
 from hueberry.backend.daemon import DaemonService
 from hueberry.backend.devices import describe_device
+from hueberry.ui import lighting_panel as lighting_module
 from hueberry.ui import worker
 from hueberry.ui.daemon_panel import DaemonPanel
 from hueberry.ui.device_info_panel import DeviceInfoPanel
-from hueberry.ui.lighting_panel import LightingPanel
+from hueberry.ui.lighting_panel import PRESET_ERHEART, LightingPanel
 from hueberry.ui.mouse_panel import MousePanel
 
 UI_DIR = Path(__file__).resolve().parent.parent / "hueberry" / "ui"
@@ -188,6 +190,68 @@ def test_lighting_callbacks_survive_deleted_panel(qtbot, make_device, capture_wo
     sip.delete(panel)
     on_done(True)
     on_error("late")
+
+
+MATRIX_CAPS = LIGHTING_CAPS + ("lighting_led_matrix",)
+
+
+@pytest.fixture
+def passive_animator(monkeypatch):
+    """Replace the shared animator with a thread-less one."""
+    anim = animator.Animator(start_thread=False)
+    monkeypatch.setattr(animator, "shared_animator", lambda: anim)
+    return anim
+
+
+def test_erheart_offered_when_supported(lighting_panel, make_device, passive_animator):
+    lighting_panel.set_device(make_device(capabilities=LIGHTING_CAPS))
+    index = lighting_panel.effect_combo.findData(PRESET_ERHEART)
+    assert index >= 0
+    assert lighting_panel.effect_combo.itemText(index) == "Erheart"
+    lighting_panel.set_device(make_device(capabilities=("lighting", "lighting_spectrum")))
+    assert lighting_panel.effect_combo.findData(PRESET_ERHEART) < 0
+
+
+def test_apply_erheart_starts_animation(lighting_panel, make_device, passive_animator,
+                                        capture_worker):
+    dev = make_device(serial="KBD1", capabilities=MATRIX_CAPS)
+    lighting_panel.set_device(dev)
+    _select_effect(lighting_panel, PRESET_ERHEART)
+    assert lighting_panel.apply_button.isEnabled()
+    messages = []
+    lighting_panel.status.connect(messages.append)
+    lighting_panel.apply_button.click()
+    assert messages == ["Applied Erheart"]
+    assert capture_worker.calls == []  # frames are drawn by the animator, not the worker
+    assert passive_animator.is_running("KBD1")
+    passive_animator.step()
+    assert len(dev.fx.advanced.draws) == 1
+
+
+def test_other_effect_stops_erheart(lighting_panel, make_device, passive_animator,
+                                    capture_worker, monkeypatch):
+    dev = make_device(serial="KBD1", capabilities=MATRIX_CAPS)
+    lighting_panel.set_device(dev)
+    _select_effect(lighting_panel, PRESET_ERHEART)
+    lighting_panel.apply_button.click()
+    lighting_panel.set_device(dev)  # re-showing the device must not stop it
+    assert passive_animator.is_running("KBD1")
+    seen = []
+    real_apply = lighting_module.apply_effect
+
+    def apply_after_stop(*args):
+        seen.append((passive_animator.is_running("KBD1"), dev.fx.advanced.restore_calls))
+        return real_apply(*args)
+
+    monkeypatch.setattr(lighting_module, "apply_effect", apply_after_stop)
+    _select_effect(lighting_panel, "static")
+    lighting_panel.apply_button.click()
+    assert passive_animator.is_running("KBD1")  # nothing is stopped on the UI thread
+    ((fn, on_done, _on_error),) = capture_worker.calls
+    on_done(fn())
+    assert seen == [(False, 1)]  # stopped and restored inside the job, before apply_effect
+    assert not passive_animator.is_running("KBD1")
+    assert dev.fx.calls[-1][0] == "static"
 
 
 @pytest.fixture

@@ -53,7 +53,11 @@ hueberry
   with <kbd>Enter</kbd> or <kbd>Space</kbd> (or a click).
 - **Device page** for the opened device, with a header (icon and name) and tabs:
   - **Lighting** – pick a zone and an effect, set colours/speed/direction, apply,
-    and adjust brightness where supported.
+    and adjust brightness where supported. The **Erheart** preset animates a
+    pink/purple diagonal wave, drawn by Hueberry itself: devices with a key
+    matrix get a per-key wave, other devices one animated colour, all in sync.
+    It runs only while Hueberry is open and stops when another effect is applied
+    to that device, when the device disappears, or when the app quits.
   - **Performance** – DPI (X/Y, optionally locked) and polling rate; only present
     for mice.
   - **Info** – name, type, serial, firmware and driver version.
