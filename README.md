@@ -47,19 +47,29 @@ hueberry
 
 ## Usage
 
-- **Device list** (left, <kbd>Alt</kbd>+<kbd>C</kbd>): every device reported by the
-  daemon, shown as "name (type)"; hover an entry to see its serial number.
-- **Tabs** (right) for the selected device:
-  - **Info** – name, type, serial, firmware and driver version.
+- **Home screen**: a grid of device cards, one per device reported by the daemon,
+  each showing an icon, the device name and its type; hover a card to see its
+  serial number. Move between cards with <kbd>Tab</kbd> / arrow keys and open one
+  with <kbd>Enter</kbd> or <kbd>Space</kbd> (or a click).
+- **Device page** for the opened device, with a header (icon and name) and tabs:
   - **Lighting** – pick a zone and an effect, set colours/speed/direction, apply,
     and adjust brightness where supported.
-  - **Mouse** – DPI (X/Y, optionally locked) and polling rate; only present for mice.
-  - **Daemon** – daemon/client versions, repoll, restart, stop and start, plus the
-    "sync effects" and "turn off on screensaver" settings.
-- **Toolbar**: *Repoll* (<kbd>F5</kbd>) reconnects and re-reads the device list;
-  *Restart daemon* (<kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd>) restarts the
-  daemon and reconnects. The selected device is kept across repolls and restarts.
-- The **status bar** shows results and errors of every action.
+  - **Performance** – DPI (X/Y, optionally locked) and polling rate; only present
+    for mice.
+  - **Info** – name, type, serial, firmware and driver version.
+
+  *← Devices* (<kbd>Alt</kbd>+<kbd>Left</kbd> or <kbd>Esc</kbd>) returns to the home screen.
+- **Daemon status bar** (bottom): a coloured dot and the daemon state, plus
+  - *Restart* – restarts the daemon and reconnects
+    (also <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd>);
+  - *Re-scan* – reconnects and re-reads the device list (also <kbd>F5</kbd>);
+  - *Daemon…* – opens a window with daemon/client versions, stop and start, plus
+    the "sync effects" and "turn off on screensaver" settings.
+
+  The opened device is kept across re-scans and restarts; the status bar also
+  shows results and errors of every action.
+- The app uses a dark theme with a single accent colour; device icons are
+  original, generic glyphs drawn by the app.
 
 ### Daemon restart
 

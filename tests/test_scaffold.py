@@ -72,9 +72,12 @@ def test_main_returns_zero(monkeypatch):
     monkeypatch.setattr(app, "QApplication", _FakeApp)
     monkeypatch.setattr(app, "MainWindow", _FakeWindow)
     monkeypatch.setattr(app, "QThreadPool", _FakePool)
+    themed = []
+    monkeypatch.setattr(app, "apply_theme", themed.append)
     monkeypatch.setattr(_FakeWindow, "created", [])
     monkeypatch.setattr(_FakePool, "waits", [])
     assert app.main([]) == 0
+    assert len(themed) == 1 and isinstance(themed[0], _FakeApp)
     (window,) = _FakeWindow.created
     assert window.shown
     assert [label for label, _fn in window.actions] == ["Connect"]
