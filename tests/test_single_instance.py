@@ -38,6 +38,23 @@ def test_second_instance_notifies_first(qtbot, name):
         first.close()
 
 
+def test_background_launch_probes_without_showing(qtbot, name):
+    """A --background second launch detects the first but does not raise its window."""
+    first = SingleInstance(name)
+    second = SingleInstance(name)
+    third = SingleInstance(name)
+    shown = []
+    first.show_requested.connect(lambda: shown.append(True))
+    try:
+        assert first.notify_or_listen() is False
+        assert second.notify_or_listen(show=False) is True
+        with qtbot.waitSignal(first.show_requested, timeout=2000):
+            assert third.notify_or_listen() is True  # a later show still works
+        assert shown == [True]
+    finally:
+        first.close()
+
+
 def test_live_socket_is_not_removed(qtbot, name):
     """Losing the race to another instance: its socket answers, so it is kept and notified."""
     first = SingleInstance(name)

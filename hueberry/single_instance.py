@@ -22,6 +22,7 @@ SOCKET_DIR_NAME = "hueberry"
 SOCKET_FILE_NAME = "gui.sock"
 SOCKET_DIR_MODE = 0o700
 SHOW_MESSAGE = b"show\n"
+PING_MESSAGE = b"ping\n"  # probe only: detect a live instance without raising it
 CONNECT_TIMEOUT_MS = 500
 WRITE_TIMEOUT_MS = 500
 
@@ -41,12 +42,15 @@ class SingleInstance(QObject):
         super().__init__(parent)
         self.name = name if name is not None else default_server_name()
         self._server: QLocalServer | None = None
+        self._message = SHOW_MESSAGE
 
-    def notify_or_listen(self) -> bool:
-        """True when another instance was told to show itself (the caller should exit).
+    def notify_or_listen(self, show: bool = True) -> bool:
+        """True when another instance is running (the caller should exit).
 
-        Otherwise start listening and return False.
+        With ``show`` it is asked to show its window; without (``--background``)
+        it is only probed. Otherwise start listening and return False.
         """
+        self._message = SHOW_MESSAGE if show else PING_MESSAGE
         if self._listen() is None:
             logger.info("Hueberry is already running; asked it to show its window")
             return True
@@ -58,7 +62,7 @@ class SingleInstance(QObject):
         try:
             if not socket.waitForConnected(CONNECT_TIMEOUT_MS):
                 return False
-            socket.write(SHOW_MESSAGE)
+            socket.write(self._message)
             socket.waitForBytesWritten(WRITE_TIMEOUT_MS)
             socket.disconnectFromServer()
             return True
@@ -97,8 +101,16 @@ class SingleInstance(QObject):
         while self._server is not None and self._server.hasPendingConnections():
             connection = self._server.nextPendingConnection()
             connection.disconnected.connect(connection.deleteLater)
-            connection.close()
-        self.show_requested.emit()
+            connection.readyRead.connect(lambda conn=connection: self._on_message(conn))
+            if connection.bytesAvailable():
+                self._on_message(connection)
+
+    def _on_message(self, connection: QLocalSocket) -> None:
+        """Emit ``show_requested`` for a ``show`` message; a ``ping`` is ignored."""
+        data = bytes(connection.readAll())
+        connection.close()
+        if data.startswith(SHOW_MESSAGE.strip()):
+            self.show_requested.emit()
 
     def close(self) -> None:
         """Stop listening (removes the socket file)."""

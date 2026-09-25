@@ -66,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
     app = QApplication(qt_argv)
     app.setApplicationName(APP_NAME)
     instance = SingleInstance()
-    if instance.notify_or_listen():
+    if instance.notify_or_listen(show=not background):
         return EXIT_OK
     logger.info("Hueberry starting (background=%s)", background)
     apply_theme(app)

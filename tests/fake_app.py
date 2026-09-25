@@ -97,7 +97,8 @@ class FakeInstance:
         self.closed = False
         FakeInstance.created.append(self)
 
-    def notify_or_listen(self):
+    def notify_or_listen(self, show=True):
+        self.show = show
         return FakeInstance.running
 
     def close(self):

@@ -69,3 +69,11 @@ def test_second_instance_exits_early(monkeypatch):
     assert FakeWindow.created == []
     assert FakeEngine.created == []
     assert themed == []
+    assert FakeInstance.created[0].show is True
+
+
+def test_background_second_instance_does_not_raise_first(monkeypatch):
+    install(monkeypatch, app, running=True)
+    assert app.main(["--background"]) == app.EXIT_OK
+    assert FakeInstance.created[0].show is False
+    assert FakeWindow.created == []
