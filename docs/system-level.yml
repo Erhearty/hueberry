@@ -1,8 +1,8 @@
 # Generated - do not edit by hand.
-core_level: 1
+core_level: 2
 capabilities:
   architecture/groups: false
-  architecture/interactions: false
+  architecture/interactions: true
   architecture/overview: true
   architecture/system-map: true
   conventions/agent-operating-contract: true
