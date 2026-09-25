@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import QApplication
 
 from hueberry.backend.daemon import DaemonService
 from hueberry.ui.main_window import MainWindow
+from hueberry.ui.theme import apply_theme
 
 APP_NAME = "Hueberry"
 CONNECT_LABEL = "Connect"
@@ -36,6 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     qt_argv = list(sys.argv) if argv is None else [sys.argv[0] if sys.argv else APP_NAME, *argv]
     app = QApplication(qt_argv)
     app.setApplicationName(APP_NAME)
+    apply_theme(app)
     service = DaemonService()
     window = MainWindow(service)
     window.show()

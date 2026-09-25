@@ -5,7 +5,7 @@
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-TITLE_TEXT = "<b>No Razer devices available</b>"
+TITLE_TEXT = "<b>No devices found</b>"
 HINT_TEXT = (
     "Make sure the OpenRazer daemon and python3-openrazer are installed, "
     "that your user is in the plugdev group, and that the daemon is running."
