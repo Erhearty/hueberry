@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Shared fixtures: a fake, API-shaped ``openrazer.client`` package.
 
 The fake mirrors the public surface of the real openrazer client library

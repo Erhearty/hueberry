@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Read-only form showing a device's name, type, serial and versions."""
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QFormLayout, QLabel, QWidget
 
-from razerui.backend.devices import DeviceInfo
+from hueberry.backend.devices import DeviceInfo
 
 PLACEHOLDER = "\u2014"
 # (DeviceInfo attribute, label text)

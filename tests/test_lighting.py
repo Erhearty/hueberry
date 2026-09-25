@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
-"""Tests for razerui.backend.lighting against the fake openrazer device."""
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
+"""Tests for hueberry.backend.lighting against the fake openrazer device."""
 
 import pytest
 
-from razerui.backend import lighting
-from razerui.backend.devices import list_zones
-from razerui.backend.lighting import LightingError
+from hueberry.backend import lighting
+from hueberry.backend.devices import list_zones
+from hueberry.backend.lighting import LightingError
 
 RED = (255, 0, 0)
 BLUE = (0, 0, 255)

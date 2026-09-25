@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Placeholder page shown when the daemon is unreachable or no device is found."""
 
 from PyQt6.QtCore import Qt, pyqtSignal

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Scaffold sanity tests: package metadata, entry point, fake openrazer, headers."""
 
 from pathlib import Path
@@ -7,16 +7,16 @@ from pathlib import Path
 import pytest
 
 SPDX_LICENSE = "# SPDX-License-Identifier: GPL-3.0-or-later"
-SPDX_COPYRIGHT = "# SPDX-FileCopyrightText: 2025 RazerUI contributors"
+SPDX_COPYRIGHT = "# SPDX-FileCopyrightText: 2025 Hueberry contributors"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-CHECKED_DIRS = (PROJECT_ROOT / "razerui", PROJECT_ROOT / "tests")
+CHECKED_DIRS = (PROJECT_ROOT / "hueberry", PROJECT_ROOT / "tests")
 
 
 def test_package_has_version():
     """The package exposes a version string."""
-    import razerui
+    import hueberry
 
-    assert razerui.__version__ == "0.1.0"
+    assert hueberry.__version__ == "0.1.0"
 
 
 class _FakeApp:
@@ -67,7 +67,7 @@ class _FakePool:
 
 def test_main_returns_zero(monkeypatch):
     """main() builds the app and window, starts a connect and returns exec()'s code."""
-    import razerui.app as app
+    import hueberry.app as app
 
     monkeypatch.setattr(app, "QApplication", _FakeApp)
     monkeypatch.setattr(app, "MainWindow", _FakeWindow)

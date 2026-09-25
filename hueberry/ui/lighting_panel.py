@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Lighting controls: zone, effect, effect parameters and brightness.
 
 Backend calls that touch the device are submitted with
-``worker.run_async(...)`` - looked up on the :mod:`razerui.ui.worker` module at
+``worker.run_async(...)`` - looked up on the :mod:`hueberry.ui.worker` module at
 call time, so tests can monkeypatch ``worker.run_async`` to run synchronously.
 """
 
@@ -16,14 +16,14 @@ from PyQt6.QtWidgets import (
     QComboBox, QFormLayout, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget,
 )
 
-from razerui.backend.devices import ZoneInfo, list_zones
-from razerui.backend.lighting import (
+from hueberry.backend.devices import ZoneInfo, list_zones
+from hueberry.backend.lighting import (
     EFFECTS, PARAM_COLOUR1, PARAM_COLOUR2, PARAM_DIRECTION, PARAM_TIME, REACTIVE_LONG,
     REACTIVE_MED, REACTIVE_SHORT, WAVE_LEFT, WAVE_RIGHT, Effect, LightingError, apply_effect,
     get_brightness, set_brightness, supported_effects, supports_brightness,
 )
-from razerui.ui import worker
-from razerui.ui.colour_button import ColourButton
+from hueberry.ui import worker
+from hueberry.ui.colour_button import ColourButton
 
 logger = logging.getLogger(__name__)
 

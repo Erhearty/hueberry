@@ -2,7 +2,7 @@
 # Interaction: RazerUI → OpenRazer Daemon
 
 - **Participants:** `razerui` → `openrazer-daemon`
-- **Transport:** `D-Bus (via system openrazer.client Python library)`
+- **Transport:** `D-Bus (via system openrazer.client Python library); lifecycle control via subprocess (systemctl --user is-active/restart openrazer-daemon, else openrazer-daemon -s / killall / openrazer-daemon)`
 <!-- generated:end edge:razerui→openrazer-daemon -->
 
 ## Contract

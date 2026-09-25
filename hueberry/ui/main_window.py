@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Main window: device list, per-device tabs, toolbar, status bar and empty state.
 
 Blocking service calls go through ``worker.run_async(...)`` looked up on the
-:mod:`razerui.ui.worker` module, so tests can monkeypatch it.
+:mod:`hueberry.ui.worker` module, so tests can monkeypatch it.
 """
 
 import logging
@@ -17,18 +17,18 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from razerui.backend.daemon import DaemonService
-from razerui.backend.devices import DeviceInfo, describe_device
-from razerui.ui import worker
-from razerui.ui.daemon_panel import DaemonPanel
-from razerui.ui.device_info_panel import DeviceInfoPanel
-from razerui.ui.empty_state import EmptyStatePanel
-from razerui.ui.lighting_panel import LightingPanel
-from razerui.ui.mouse_panel import MousePanel
+from hueberry.backend.daemon import DaemonService
+from hueberry.backend.devices import DeviceInfo, describe_device
+from hueberry.ui import worker
+from hueberry.ui.daemon_panel import DaemonPanel
+from hueberry.ui.device_info_panel import DeviceInfoPanel
+from hueberry.ui.empty_state import EmptyStatePanel
+from hueberry.ui.lighting_panel import LightingPanel
+from hueberry.ui.mouse_panel import MousePanel
 
 logger = logging.getLogger(__name__)
 
-WINDOW_TITLE = "RazerUI"
+WINDOW_TITLE = "Hueberry"
 DEFAULT_WIDTH = 900
 DEFAULT_HEIGHT = 560
 LIST_MIN_WIDTH = 220

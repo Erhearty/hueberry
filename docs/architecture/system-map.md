@@ -5,7 +5,7 @@
 graph TD
     openrazer-daemon["OpenRazer Daemon <br/> <small>(CUSTOM)</small>"]
     razerui["RazerUI <br/> <small>(FRONTEND)</small>"]
-    razerui -->|D-Bus (via system openrazer.client Python library)| openrazer-daemon
+    razerui -->|D-Bus (via system openrazer.client Python library); lifecycle control via subprocess (systemctl --user is-active/restart openrazer-daemon, else openrazer-daemon -s / killall / openrazer-daemon)| openrazer-daemon
 ```
 
 ## Components
@@ -15,5 +15,5 @@ graph TD
 
 ## Interactions
 
-- [razerui → openrazer-daemon](interactions/razerui--openrazer-daemon.md) via `D-Bus (via system openrazer.client Python library)`
+- [razerui → openrazer-daemon](interactions/razerui--openrazer-daemon.md) via `D-Bus (via system openrazer.client Python library); lifecycle control via subprocess (systemctl --user is-active/restart openrazer-daemon, else openrazer-daemon -s / killall / openrazer-daemon)`
 <!-- generated:end file:system-map -->

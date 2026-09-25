@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Run blocking backend calls on the global QThreadPool.
 
 Panels call ``worker.run_async(...)`` through the *module attribute* (``from
-razerui.ui import worker``) rather than importing the function, so tests can
+hueberry.ui import worker``) rather than importing the function, so tests can
 monkeypatch :func:`run_async` with a synchronous stand-in.
 """
 

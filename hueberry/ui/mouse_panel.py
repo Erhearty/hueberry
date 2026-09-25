@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Mouse controls: DPI (X/Y, optionally locked) and polling rate.
 
 Device writes go through ``worker.run_async(...)`` looked up on the
-:mod:`razerui.ui.worker` module, so tests can monkeypatch it.
+:mod:`hueberry.ui.worker` module, so tests can monkeypatch it.
 """
 
 import logging
@@ -16,8 +16,8 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from razerui.backend.mouse import MIN_DPI, MouseControls, MouseError
-from razerui.ui import worker
+from hueberry.backend.mouse import MIN_DPI, MouseControls, MouseError
+from hueberry.ui import worker
 
 logger = logging.getLogger(__name__)
 

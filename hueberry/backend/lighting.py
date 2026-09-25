@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Lighting effects and brightness for a device's lighting zones.
 
 Every function takes the device object (for capability checks) and a
-:class:`~razerui.backend.devices.ZoneInfo` (whose ``obj`` is ``dev.fx`` for the
+:class:`~hueberry.backend.devices.ZoneInfo` (whose ``obj`` is ``dev.fx`` for the
 main zone or a ``dev.fx.misc.<zone>`` object for misc zones). Nothing here
 imports openrazer; the objects are passed in by the caller.
 """
@@ -12,7 +12,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from razerui.backend.devices import MAIN_ZONE_KEY, ZoneInfo
+from hueberry.backend.devices import MAIN_ZONE_KEY, ZoneInfo
 
 logger = logging.getLogger(__name__)
 

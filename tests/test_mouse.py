@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
-"""Tests for razerui.backend.mouse against the fake openrazer device."""
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
+"""Tests for hueberry.backend.mouse against the fake openrazer device."""
 
 import pytest
 
-from razerui.backend.mouse import FALLBACK_POLL_RATES, MIN_DPI, MouseControls, MouseError
+from hueberry.backend.mouse import FALLBACK_POLL_RATES, MIN_DPI, MouseControls, MouseError
 
 
 def _mouse(make_device, *capabilities):

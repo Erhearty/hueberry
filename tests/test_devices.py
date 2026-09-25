@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
-"""Tests for razerui.backend.devices."""
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
+"""Tests for hueberry.backend.devices."""
 
-from razerui.backend.devices import UNKNOWN, describe_device, list_zones
+from hueberry.backend.devices import UNKNOWN, describe_device, list_zones
 
 
 def test_describe_device_reads_fields(make_device):

@@ -1,10 +1,10 @@
-# RazerUI
+# Hueberry
 
-RazerUI is a standalone PyQt6 front end for [OpenRazer](https://openrazer.github.io/),
+Hueberry is a standalone PyQt6 front end for [OpenRazer](https://openrazer.github.io/),
 the open-source driver and daemon for Razer peripherals on Linux. It talks to the
 OpenRazer daemon through the official `openrazer.client` Python library.
 
-RazerUI does **not** depend on Polychromatic or RazerGenie.
+Hueberry does **not** depend on Polychromatic or RazerGenie.
 
 Licensed under the GNU General Public License v3.0 or later (`GPL-3.0-or-later`),
 see [LICENSE](LICENSE).
@@ -40,9 +40,9 @@ python3 -m venv --system-site-packages .venv
 ## Running
 
 ```sh
-python -m razerui
+python -m hueberry
 # or, once installed:
-razerui
+hueberry
 ```
 
 ## Usage
@@ -64,7 +64,7 @@ razerui
 ### Daemon restart
 
 *Restart daemon* uses the systemd user unit when it is active: if
-`systemctl --user is-active openrazer-daemon` succeeds, RazerUI runs
+`systemctl --user is-active openrazer-daemon` succeeds, Hueberry runs
 `systemctl --user restart openrazer-daemon`. Otherwise it falls back to
 `openrazer-daemon -s` (stop), `killall openrazer-daemon` (in case it is still
 running) and then starts `openrazer-daemon` again, before reconnecting.
@@ -72,7 +72,7 @@ running) and then starts `openrazer-daemon` again, before reconnecting.
 ### Without the daemon or python3-openrazer
 
 If `python3-openrazer` is not installed, the daemon is not running, or no devices
-are found, RazerUI does not crash: it shows an empty state with the error message
+are found, Hueberry does not crash: it shows an empty state with the error message
 and *Start daemon* / *Retry* buttons.
 
 ## Development and tests

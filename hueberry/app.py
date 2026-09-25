@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
-"""Application bootstrap for RazerUI.
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
+"""Application bootstrap for Hueberry.
 
 openrazer is imported lazily by the backend, so this module stays importable
 (and the app starts, showing an empty state) without python3-openrazer.
@@ -12,10 +12,10 @@ import sys
 from PyQt6.QtCore import QThreadPool
 from PyQt6.QtWidgets import QApplication
 
-from razerui.backend.daemon import DaemonService
-from razerui.ui.main_window import MainWindow
+from hueberry.backend.daemon import DaemonService
+from hueberry.ui.main_window import MainWindow
 
-APP_NAME = "RazerUI"
+APP_NAME = "Hueberry"
 CONNECT_LABEL = "Connect"
 EXIT_OK = 0
 SHUTDOWN_WAIT_MS = 5000  # longest wait for background tasks on quit
@@ -25,14 +25,14 @@ logger = logging.getLogger(__name__)
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run RazerUI and return a process exit code.
+    """Run Hueberry and return a process exit code.
 
     :param argv: command-line arguments (without the program name); defaults
         to ``sys.argv``.
     :return: the Qt event loop's exit code (``EXIT_OK`` on a normal quit).
     """
     logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-    logger.info("RazerUI starting")
+    logger.info("Hueberry starting")
     qt_argv = list(sys.argv) if argv is None else [sys.argv[0] if sys.argv else APP_NAME, *argv]
     app = QApplication(qt_argv)
     app.setApplicationName(APP_NAME)

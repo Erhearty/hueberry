@@ -60,7 +60,7 @@
   "connections": [
     {
       "from": "razerui",
-      "protocol": "D-Bus (via system openrazer.client Python library)",
+      "protocol": "D-Bus (via system openrazer.client Python library); lifecycle control via subprocess (systemctl --user is-active/restart openrazer-daemon, else openrazer-daemon -s / killall / openrazer-daemon)",
       "to": "openrazer-daemon"
     }
   ],

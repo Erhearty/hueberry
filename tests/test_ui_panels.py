@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Tests for the PyQt6 panels (run offscreen with pytest-qt)."""
 
 from pathlib import Path
@@ -9,15 +9,15 @@ from PyQt6 import sip
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QAbstractSlider, QWidget
 
-from razerui.backend.daemon import DaemonService
-from razerui.backend.devices import describe_device
-from razerui.ui import worker
-from razerui.ui.daemon_panel import DaemonPanel
-from razerui.ui.device_info_panel import DeviceInfoPanel
-from razerui.ui.lighting_panel import LightingPanel
-from razerui.ui.mouse_panel import MousePanel
+from hueberry.backend.daemon import DaemonService
+from hueberry.backend.devices import describe_device
+from hueberry.ui import worker
+from hueberry.ui.daemon_panel import DaemonPanel
+from hueberry.ui.device_info_panel import DeviceInfoPanel
+from hueberry.ui.lighting_panel import LightingPanel
+from hueberry.ui.mouse_panel import MousePanel
 
-UI_DIR = Path(__file__).resolve().parent.parent / "razerui" / "ui"
+UI_DIR = Path(__file__).resolve().parent.parent / "hueberry" / "ui"
 FORBIDDEN_IMPORTS = ("import openrazer", "from openrazer")
 LIGHTING_CAPS = ("lighting", "lighting_static", "lighting_breath_dual")
 MOUSE_CAPS = ("dpi", "poll_rate")

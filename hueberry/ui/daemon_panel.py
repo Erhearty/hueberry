@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Daemon status and lifecycle controls backed by a DaemonService.
 
 Actions run through ``worker.run_async(...)`` looked up on the
-:mod:`razerui.ui.worker` module, so tests can monkeypatch it.
+:mod:`hueberry.ui.worker` module, so tests can monkeypatch it.
 """
 
 import logging
@@ -15,8 +15,8 @@ from PyQt6.QtWidgets import (
     QCheckBox, QFormLayout, QHBoxLayout, QLabel, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
-from razerui.backend.daemon import DaemonService, DaemonStatus
-from razerui.ui import worker
+from hueberry.backend.daemon import DaemonService, DaemonStatus
+from hueberry.ui import worker
 
 logger = logging.getLogger(__name__)
 

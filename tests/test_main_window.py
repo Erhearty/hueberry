@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Tests for the main window (offscreen, synchronous worker)."""
 
 import pytest
 
-from razerui.backend.daemon import DaemonService
-from razerui.ui import worker
-from razerui.ui.main_window import SERIAL_ROLE, MainWindow
+from hueberry.backend.daemon import DaemonService
+from hueberry.ui import worker
+from hueberry.ui.main_window import SERIAL_ROLE, MainWindow
 
 MOUSE_SERIAL = "MOUSE0001"
 KEYBOARD_SERIAL = "KBD0001"

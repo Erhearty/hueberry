@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
-# SPDX-FileCopyrightText: 2025 RazerUI contributors
-"""Tests for razerui.backend.daemon (no real subprocesses or sleeping)."""
+# SPDX-FileCopyrightText: 2025 Hueberry contributors
+"""Tests for hueberry.backend.daemon (no real subprocesses or sleeping)."""
 
 import os
 import subprocess
@@ -9,8 +9,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from razerui.backend import daemon as daemon_mod
-from razerui.backend.daemon import DaemonService, default_pid_path, pid_alive
+from hueberry.backend import daemon as daemon_mod
+from hueberry.backend.daemon import DaemonService, default_pid_path, pid_alive
 
 NONEXISTENT_PID = 2**22 + 12345  # above the Linux pid_max ceiling (2**22)
 
