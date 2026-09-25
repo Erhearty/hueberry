@@ -77,6 +77,7 @@
       "to": "macro-engine"
     }
   ],
+  "definitions": [],
   "forestreeFormatVersion": true,
   "globalRules": {
     "custom": {
@@ -312,14 +313,19 @@
   "groups": [],
   "projectName": "Forestree Agent Workspace",
   "repoId": "6799db62-29df-42b9-b646-93ba45ed8434",
+  "systemIntent": "UI for openrazer. Main goals are:\n- LED presets\n- independent OR combined LED setup\n- visual preview for the LED setup, including LED position and color of each connected device\n- Generate advanced effects from presets(per-key effect, effect rotation, speed controll)\n- Macro recording and editing\n- Macro assignement to any key",
   "topologyLayout": {
     "macro-engine": {
-      "x": 460,
-      "y": 200
+      "x": 437,
+      "y": 330
+    },
+    "openrazer-daemon": {
+      "x": 217,
+      "y": 75
     },
     "razerui": {
-      "x": 200,
-      "y": 200
+      "x": 112,
+      "y": 286
     }
   },
   "version": "1.0.0"

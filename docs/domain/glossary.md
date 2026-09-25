@@ -28,3 +28,15 @@ Canonical component names projected from the architecture canvas.
 <!-- generated:start comp:macro-engine -->
 - **Macro Engine** (`macro-engine`) - backend component.
 <!-- generated:end comp:macro-engine -->
+
+<!-- generated:start cap:system-intent -->
+## System Intent
+
+UI for openrazer. Main goals are:
+- LED presets
+- independent OR combined LED setup
+- visual preview for the LED setup, including LED position and color of each connected device
+- Generate advanced effects from presets(per-key effect, effect rotation, speed controll)
+- Macro recording and editing
+- Macro assignement to any key
+<!-- generated:end cap:system-intent -->
