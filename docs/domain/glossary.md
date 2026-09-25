@@ -20,3 +20,7 @@ Canonical component names projected from the architecture canvas.
 <!-- generated:start comp:openrazer-daemon -->
 - **OpenRazer Daemon** (`openrazer-daemon`) - custom component. External, independently-packaged system daemon (OpenRazer project) that owns direct USB/HID communication with Razer hardware and exposes it over D-Bus (org.razer). Both RazerGenie and Polychromatic are alternative GUI front-ends to this same daemon; its source is not part of this repository.
 <!-- generated:end comp:openrazer-daemon -->
+
+<!-- generated:start comp:razerui -->
+- **RazerUI** (`razerui`) - frontend component.
+<!-- generated:end comp:razerui -->

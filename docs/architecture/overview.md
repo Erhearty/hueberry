@@ -1,7 +1,7 @@
 <!-- generated:start cap:overview-intro -->
 # Architecture Overview
 
-1 component(s) declared on the architecture canvas. Topology: [system-map.md](system-map.md).
+2 component(s) declared on the architecture canvas. Topology: [system-map.md](system-map.md).
 <!-- generated:end cap:overview-intro -->
 
 
@@ -18,3 +18,7 @@ External, independently-packaged system daemon (OpenRazer project) that owns dir
 
 **Tech:** D-Bus (org.razer), Python daemon (external project)
 <!-- generated:end comp:openrazer-daemon -->
+
+<!-- generated:start comp:razerui -->
+## RazerUI (`razerui`, FRONTEND)
+<!-- generated:end comp:razerui -->

@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hueberry"
+version = "0.1.0"
+description = "Standalone PyQt6 front end for the OpenRazer daemon"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+    "Environment :: X11 Applications :: Qt",
+]
+# openrazer is deliberately NOT listed: it is not usable from PyPI and must come
+# from the distro package (python3-openrazer / openrazer-daemon).
+dependencies = ["PyQt6>=6.4"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "pytest-qt>=4"]
+
+[project.scripts]
+hueberry = "hueberry.app:main"
+
+[tool.setuptools.packages.find]
+include = ["hueberry*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+qt_api = "pyqt6"
+pythonpath = ["."]

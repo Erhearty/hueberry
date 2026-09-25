@@ -47,9 +47,23 @@
       "id": "openrazer-daemon",
       "name": "OpenRazer Daemon",
       "type": "custom"
+    },
+    {
+      "canvas": {
+        "widgets": []
+      },
+      "id": "razerui",
+      "name": "RazerUI",
+      "type": "frontend"
     }
   ],
-  "connections": [],
+  "connections": [
+    {
+      "from": "razerui",
+      "protocol": "D-Bus (via system openrazer.client Python library); lifecycle control via subprocess (systemctl --user is-active/restart openrazer-daemon, else openrazer-daemon -s / killall / openrazer-daemon)",
+      "to": "openrazer-daemon"
+    }
+  ],
   "forestreeFormatVersion": true,
   "globalRules": {
     "custom": {
@@ -285,6 +299,11 @@
   "groups": [],
   "projectName": "Forestree Agent Workspace",
   "repoId": "6799db62-29df-42b9-b646-93ba45ed8434",
-  "topologyLayout": {},
+  "topologyLayout": {
+    "razerui": {
+      "x": 200,
+      "y": 200
+    }
+  },
   "version": "1.0.0"
 }
