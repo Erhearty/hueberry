@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "run_command"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

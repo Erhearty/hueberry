@@ -1,0 +1,290 @@
+{
+  "components": [
+    {
+      "canvas": {
+        "widgets": [
+          {
+            "data": {
+              "text": "External, independently-packaged system daemon (OpenRazer project) that owns direct USB/HID communication with Razer hardware and exposes it over D-Bus (org.razer). Both RazerGenie and Polychromatic are alternative GUI front-ends to this same daemon; its source is not part of this repository."
+            },
+            "h": 180,
+            "id": "widget-1790334421757-0",
+            "title": "Intent & Scope Description",
+            "type": "text",
+            "w": 350,
+            "x": 30,
+            "y": 30
+          },
+          {
+            "data": {
+              "techs": [
+                "D-Bus (org.razer)",
+                "Python daemon (external project)"
+              ]
+            },
+            "h": 200,
+            "id": "widget-1790334421777-1",
+            "title": "Tech Stack Profiles",
+            "type": "techstack",
+            "w": 350,
+            "x": 60,
+            "y": 60
+          },
+          {
+            "data": {
+              "text": "The OpenRazer daemon is a separate upstream project (github.com/openrazer/openrazer) installed on the system. RazerGenie depends on it via the libopenrazer C++ library (Meson dependency with subproject fallback); Polychromatic depends on it via the \"openrazer\" Python client library. Neither daemon nor client library source lives in this workspace."
+            },
+            "h": 200,
+            "id": "widget-1790334421793-2",
+            "title": "External dependency, not in this repo",
+            "type": "note",
+            "w": 350,
+            "x": 90,
+            "y": 90
+          }
+        ]
+      },
+      "id": "openrazer-daemon",
+      "name": "OpenRazer Daemon",
+      "type": "custom"
+    }
+  ],
+  "connections": [],
+  "forestreeFormatVersion": true,
+  "globalRules": {
+    "custom": {
+      "accessibility": "",
+      "ai_agent": "",
+      "coding": "",
+      "documentation": "",
+      "error_handling": "",
+      "performance": "",
+      "security": "",
+      "testing": "",
+      "version_control": ""
+    },
+    "rules": {
+      "adr_decisions": {
+        "checked": false,
+        "value": ""
+      },
+      "alt_text": {
+        "checked": true,
+        "value": ""
+      },
+      "api_examples": {
+        "checked": false,
+        "value": ""
+      },
+      "ask_when_ambiguous": {
+        "checked": true,
+        "value": ""
+      },
+      "avoid_n_plus_one": {
+        "checked": true,
+        "value": ""
+      },
+      "bundle_budget": {
+        "checked": true,
+        "value": 250
+      },
+      "cache_expensive": {
+        "checked": false,
+        "value": ""
+      },
+      "changelog": {
+        "checked": false,
+        "value": ""
+      },
+      "cite_paths": {
+        "checked": true,
+        "value": ""
+      },
+      "commit_convention": {
+        "checked": true,
+        "value": "Conventional Commits (feat:, fix:, chore:)"
+      },
+      "commit_subject_len": {
+        "checked": true,
+        "value": 72
+      },
+      "contrast_target": {
+        "checked": true,
+        "value": "4.5:1 (WCAG AA)"
+      },
+      "dependency_audit": {
+        "checked": false,
+        "value": ""
+      },
+      "deterministic_tests": {
+        "checked": true,
+        "value": ""
+      },
+      "dry_principle": {
+        "checked": true,
+        "value": ""
+      },
+      "e2e_critical": {
+        "checked": false,
+        "value": ""
+      },
+      "fail_fast": {
+        "checked": false,
+        "value": ""
+      },
+      "focused_prs": {
+        "checked": true,
+        "value": ""
+      },
+      "formatter": {
+        "checked": true,
+        "value": "Prettier + ESLint (fix on save)"
+      },
+      "handle_errors": {
+        "checked": true,
+        "value": ""
+      },
+      "integration_tests": {
+        "checked": true,
+        "value": ""
+      },
+      "keyboard_nav": {
+        "checked": true,
+        "value": ""
+      },
+      "least_privilege": {
+        "checked": false,
+        "value": ""
+      },
+      "limit_function": {
+        "checked": true,
+        "value": 25
+      },
+      "max_file_length": {
+        "checked": true,
+        "value": 400
+      },
+      "max_nesting": {
+        "checked": true,
+        "value": 3
+      },
+      "min_coverage": {
+        "checked": true,
+        "value": 80
+      },
+      "mock_external": {
+        "checked": true,
+        "value": ""
+      },
+      "naming_conv": {
+        "checked": true,
+        "value": "camelCase for JS, PascalCase for classes"
+      },
+      "no_force_push": {
+        "checked": true,
+        "value": ""
+      },
+      "no_hardcoded_secrets": {
+        "checked": true,
+        "value": ""
+      },
+      "no_magic_numbers": {
+        "checked": true,
+        "value": ""
+      },
+      "no_secrets_in_logs": {
+        "checked": true,
+        "value": ""
+      },
+      "no_unrequested_commits": {
+        "checked": true,
+        "value": ""
+      },
+      "paginate_lists": {
+        "checked": true,
+        "value": ""
+      },
+      "parameterized_queries": {
+        "checked": true,
+        "value": ""
+      },
+      "plan_first": {
+        "checked": true,
+        "value": ""
+      },
+      "preserve_comments": {
+        "checked": true,
+        "value": ""
+      },
+      "profile_first": {
+        "checked": false,
+        "value": ""
+      },
+      "readme_current": {
+        "checked": true,
+        "value": ""
+      },
+      "rebase_policy": {
+        "checked": false,
+        "value": ""
+      },
+      "reduced_motion": {
+        "checked": false,
+        "value": ""
+      },
+      "regression_tests": {
+        "checked": true,
+        "value": ""
+      },
+      "require_docstrings": {
+        "checked": true,
+        "value": ""
+      },
+      "semantic_html": {
+        "checked": true,
+        "value": ""
+      },
+      "signed_commits": {
+        "checked": false,
+        "value": ""
+      },
+      "small_diffs": {
+        "checked": true,
+        "value": ""
+      },
+      "structured_logging": {
+        "checked": true,
+        "value": ""
+      },
+      "test_framework": {
+        "checked": true,
+        "value": "Jest for Frontend, Vitest for Backend Node"
+      },
+      "test_naming": {
+        "checked": false,
+        "value": ""
+      },
+      "update_docs": {
+        "checked": true,
+        "value": ""
+      },
+      "user_facing_messages": {
+        "checked": false,
+        "value": ""
+      },
+      "validate_input": {
+        "checked": true,
+        "value": ""
+      },
+      "verify_compilation": {
+        "checked": false,
+        "value": ""
+      }
+    }
+  },
+  "groups": [],
+  "projectName": "Forestree Agent Workspace",
+  "repoId": "6799db62-29df-42b9-b646-93ba45ed8434",
+  "topologyLayout": {},
+  "version": "1.0.0"
+}
