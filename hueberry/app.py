@@ -12,6 +12,7 @@ import sys
 from PyQt6.QtCore import QThreadPool
 from PyQt6.QtWidgets import QApplication
 
+from hueberry.backend import animator
 from hueberry.backend.daemon import DaemonService
 from hueberry.ui.main_window import MainWindow
 from hueberry.ui.theme import apply_theme
@@ -23,6 +24,15 @@ SHUTDOWN_WAIT_MS = 5000  # longest wait for background tasks on quit
 LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
 
 logger = logging.getLogger(__name__)
+
+
+def _stop_animations_on_quit(app: QApplication) -> None:
+    """Stop (and restore) preset animations when Qt is about to quit."""
+    about_to_quit = getattr(app, "aboutToQuit", None)
+    if about_to_quit is None:  # not a real QApplication
+        logger.warning("Application has no aboutToQuit signal; animations not bound")
+        return
+    about_to_quit.connect(animator.shared_animator().shutdown)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -44,6 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     # Connecting may block on D-Bus, so it runs through worker.run_async and
     # the window reloads its device list when it completes.
     window.run_service_action(CONNECT_LABEL, service.connect)
+    _stop_animations_on_quit(app)
     exit_code = app.exec()
     # Let in-flight D-Bus/daemon tasks finish before interpreter teardown.
     QThreadPool.globalInstance().waitForDone(SHUTDOWN_WAIT_MS)
