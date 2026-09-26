@@ -26,6 +26,7 @@ from hueberry.ui.device_cards import DeviceGrid
 from hueberry.ui.device_page import DevicePage
 from hueberry.ui.empty_state import EmptyStatePanel
 from hueberry.ui.macros_page import MacrosPage
+from hueberry.ui.presets_page import PresetsPage
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,9 @@ UNKNOWN_ERROR = "unknown error"
 MACROS_TEXT = "&Macros\u2026"
 MACROS_SHORTCUT = "Ctrl+M"
 MACROS_TIP = "Record, edit and bind macros (Ctrl+M)"
+PRESETS_TEXT = "P&resets\u2026"
+PRESETS_SHORTCUT = "Ctrl+P"
+PRESETS_TIP = "Create, edit and apply lighting presets (Ctrl+P)"
 
 
 class MainWindow(QMainWindow):
@@ -67,6 +71,7 @@ class MainWindow(QMainWindow):
         self._current_serial: str | None = None  # selected device, if it is present
         self._busy = False  # a window action (status bar / shortcut / empty state) is running
         self._panel_busy = False  # a Daemon dialog action is running
+        self._before_presets: QWidget | None = None  # page to return to from Presets
         self.setWindowTitle(WINDOW_TITLE)
         self.resize(DEFAULT_WIDTH, DEFAULT_HEIGHT)
         self._build_pages()
@@ -75,6 +80,9 @@ class MainWindow(QMainWindow):
         self.macros_button = QPushButton(MACROS_TEXT, self)
         self.macros_button.setToolTip(MACROS_TIP)
         self.statusBar().addPermanentWidget(self.macros_button)
+        self.presets_button = QPushButton(PRESETS_TEXT, self)
+        self.presets_button.setToolTip(PRESETS_TIP)
+        self.statusBar().addPermanentWidget(self.presets_button)
         self.daemon_bar = DaemonStatusBar(self._service, self)
         self.statusBar().addPermanentWidget(self.daemon_bar)
         self._connect_signals()
@@ -92,8 +100,10 @@ class MainWindow(QMainWindow):
         self.mouse_panel = self.device_page.mouse_panel
         self.empty_page = EmptyStatePanel(self)
         self.macros_page = MacrosPage(self._engine, self)
+        self.presets_page = PresetsPage(self)
         self.stack = QStackedWidget(self)
-        for page in (self.home_page, self.device_page, self.empty_page, self.macros_page):
+        for page in (self.home_page, self.device_page, self.empty_page, self.macros_page,
+                     self.presets_page):
             self.stack.addWidget(page)
         self.setCentralWidget(self.stack)
 
@@ -115,7 +125,10 @@ class MainWindow(QMainWindow):
         self.restart_action.setShortcut(QKeySequence(RESTART_SHORTCUT))
         self.macros_action = QAction(MACROS_TEXT, self)
         self.macros_action.setShortcut(QKeySequence(MACROS_SHORTCUT))
-        for action in (self.repoll_action, self.restart_action, self.macros_action):
+        self.presets_action = QAction(PRESETS_TEXT, self)
+        self.presets_action.setShortcut(QKeySequence(PRESETS_SHORTCUT))
+        for action in (self.repoll_action, self.restart_action, self.macros_action,
+                       self.presets_action):
             action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
             self.addAction(action)
 
@@ -137,6 +150,13 @@ class MainWindow(QMainWindow):
         self.daemon_panel.daemon_changed.connect(self.reload)
         self.daemon_panel.busy_changed.connect(self._on_panel_busy)
         self._connect_macros()
+        self._connect_presets()
+
+    def _connect_presets(self) -> None:
+        self.presets_action.triggered.connect(self.show_presets)
+        self.presets_button.clicked.connect(self.show_presets)
+        self.presets_page.back_requested.connect(self._leave_presets)
+        self.presets_page.status.connect(self.show_status)
 
     def _connect_macros(self) -> None:
         self.macros_action.triggered.connect(self.show_macros)
@@ -189,6 +209,15 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.macros_page)
         self.macros_page.device_list.setFocus()
 
+    def show_presets(self) -> None:
+        """Open the Presets page, remembering the page to return to."""
+        current = self.stack.currentWidget()
+        if current is not self.presets_page:
+            self._before_presets = current
+        self.presets_page.refresh()
+        self.stack.setCurrentWidget(self.presets_page)
+        self.presets_page.preset_list.setFocus()
+
     def start_engine(self) -> None:
         """Start the macro engine in the background (no-op without an engine)."""
         self.macros_page.start_engine()
@@ -225,6 +254,15 @@ class MainWindow(QMainWindow):
         if self.stack.currentWidget() is self.home_page:
             self.home_page.focus_selected()
 
+    def _leave_presets(self) -> None:
+        """Return to the page shown before Presets, then reload (it may be stale)."""
+        previous = self._before_presets or self.home_page
+        self._before_presets = None
+        self.stack.setCurrentWidget(previous)
+        self.reload()
+        if self.stack.currentWidget() is self.home_page:
+            self.home_page.focus_selected()
+
     def _rescan(self) -> None:
         self.run_service_action(REPOLL_TEXT, self._service.repoll)
 
@@ -244,7 +282,8 @@ class MainWindow(QMainWindow):
         self.daemon_bar.refresh()
         self._entries = [(dev, describe_device(dev)) for dev in devices]
         self.home_page.set_devices([info for _dev, info in self._entries])
-        if self.stack.currentWidget() is self.macros_page:
+        self.presets_page.set_devices(self._entries)
+        if self.stack.currentWidget() in (self.macros_page, self.presets_page):
             return  # stay on the Macros page; the grid is updated for later
         if not self._entries:
             self._show_empty()
