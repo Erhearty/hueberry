@@ -77,7 +77,8 @@ def _tab_texts(win):
 
 def test_no_list_or_daemon_tab(window):
     win, _service = window
-    lists = [lst for lst in win.findChildren(QListWidget) if not win.macros_page.isAncestorOf(lst)]
+    lists = [lst for lst in win.findChildren(QListWidget)
+             if not win.macros_page.isAncestorOf(lst) and not win.presets_page.isAncestorOf(lst)]
     assert not lists
     assert not win.findChildren(QSplitter)
     assert all("Daemo" not in text for text in _tab_texts(win))
@@ -398,6 +399,30 @@ def test_macros_button_opens_macros_page(window):
     win.macros_button.click()
     assert win.stack.currentWidget() is win.macros_page
     assert win.macros_action.shortcut().toString() == "Ctrl+M"
+
+
+def test_presets_page_opens_and_returns_to_previous_page(window):
+    win, _service = window
+    _connect(win)
+    _card(win, KEYBOARD_SERIAL).click()
+    win.presets_action.trigger()
+    assert win.stack.currentWidget() is win.presets_page
+    assert win.presets_action.shortcut().toString() == "Ctrl+P"
+    win.presets_page.back_button.click()
+    assert win.stack.currentWidget() is win.device_page
+    win.device_page.back_button.click()
+    win.presets_button.click()
+    assert win.stack.currentWidget() is win.presets_page
+    win.presets_page.back_button.click()
+    assert win.stack.currentWidget() is win.home_page
+
+
+def test_presets_page_gets_devices_and_status(window):
+    win, _service = window
+    _connect(win)
+    assert win.presets_page.device_list.count() == 2
+    win.presets_page.status.emit("presets saved")
+    assert win.statusBar().currentMessage() == "presets saved"
 
 
 def test_macros_status_reaches_status_bar(window):

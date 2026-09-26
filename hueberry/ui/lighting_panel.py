@@ -5,9 +5,11 @@
 Backend calls that touch the device are submitted with
 ``worker.run_async(...)`` - looked up on the :mod:`hueberry.ui.worker` module at
 call time, so tests can monkeypatch ``worker.run_async`` to run synchronously.
-The Erheart preset is driven by ``animator.shared_animator()``, likewise looked
-up at call time; it is stopped (in the worker job, never on the UI thread)
-before any other effect is applied.
+Presets (the built-ins, then the user's from :mod:`hueberry.backend.preset_store`)
+are driven by ``lighting_state.shared_lighting_state()`` (so they come back
+after a restart), likewise looked up at call time; a running preset is stopped
+and forgotten (in the worker job, never on the UI thread) before any other
+effect is applied.
 """
 
 import logging
@@ -19,13 +21,14 @@ from PyQt6.QtWidgets import (
     QComboBox, QFormLayout, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget,
 )
 
-from hueberry.backend import animator, presets
+from hueberry.backend import animator, lighting_state, preset_store, presets
 from hueberry.backend.devices import ZoneInfo, list_zones
 from hueberry.backend.lighting import (
     EFFECTS, PARAM_COLOUR1, PARAM_COLOUR2, PARAM_DIRECTION, PARAM_TIME, REACTIVE_LONG,
     REACTIVE_MED, REACTIVE_SHORT, WAVE_LEFT, WAVE_RIGHT, Effect, LightingError, apply_effect,
     get_brightness, set_brightness, supported_effects, supports_brightness,
 )
+from hueberry.backend.effects import Preset
 from hueberry.ui import worker
 from hueberry.ui.colour_button import ColourButton
 
@@ -42,7 +45,13 @@ ROW_ZONE = "zone"
 ROW_EFFECT = "effect"
 ROW_BRIGHTNESS = "brightness"
 PARAM_ROWS = (PARAM_COLOUR1, PARAM_COLOUR2, PARAM_TIME, PARAM_DIRECTION)
+PRESET_DATA_PREFIX = "preset:"  # effect combo data prefix of preset items
 PRESET_ERHEART = f"preset:{presets.PRESET_KEY}"  # effect combo data of the Erheart preset
+
+
+def preset_data(key: str) -> str:
+    """Effect combo data of the preset with ``key``."""
+    return f"{PRESET_DATA_PREFIX}{key}"
 
 
 def _choice_combo(choices: tuple[tuple[str, int], ...], parent: QWidget) -> QComboBox:
@@ -54,7 +63,7 @@ def _choice_combo(choices: tuple[tuple[str, int], ...], parent: QWidget) -> QCom
 
 def _stop_preset_then_apply(dev: Any, zone: ZoneInfo, effect_key: str,
                             params: dict[str, Any]) -> Any:
-    """Worker job: stop an Erheart animation on ``dev``, then apply an effect.
+    """Worker job: stop and forget a preset animation on ``dev``, then apply an effect.
 
     Stopping may wait for one animation frame and restores the matrix over
     D-Bus, so it runs here rather than on the UI thread. A failed stop is
@@ -63,9 +72,9 @@ def _stop_preset_then_apply(dev: Any, zone: ZoneInfo, effect_key: str,
     serial = animator.device_serial(dev)
     if serial is not None:
         try:
-            animator.shared_animator().stop(serial)
+            lighting_state.shared_lighting_state().stop_device(serial)
         except Exception:  # the new effect is still applied
-            logger.exception("Could not stop the %s preset", presets.PRESET_LABEL)
+            logger.exception("Could not stop the running preset on %s", serial)
     return apply_effect(dev, zone, effect_key, params)
 
 
@@ -81,10 +90,13 @@ class LightingPanel(QWidget):
         self._labels: dict[str, QLabel] = {}
         self._writing = False  # a device write from this panel is pending
         self._brightness_queued = False  # brightness changed while a write was pending
+        self._presets: list[Preset] = list(presets.BUILTIN_PRESETS)
+        self._preset_error: str | None = None  # last preset load error, until reported
         self._build_widgets()
         self._build_layout()
         self._connect_signals()
         self._set_tab_order()
+        self._load_presets()
         self.set_device(None)
 
     # -- construction --------------------------------------------------------
@@ -175,12 +187,51 @@ class LightingPanel(QWidget):
         key = self.effect_combo.currentData()
         return EFFECTS.get(key) if key is not None else None
 
+    def selected_preset(self) -> Preset | None:
+        """The selected preset, or None when a plain effect (or nothing) is selected."""
+        data = self.effect_combo.currentData()
+        if not isinstance(data, str) or not data.startswith(PRESET_DATA_PREFIX):
+            return None
+        return preset_store.find_preset(data.removeprefix(PRESET_DATA_PREFIX), self._presets)
+
     def preset_selected(self) -> bool:
-        """True when the Erheart preset is the selected effect."""
-        return self.effect_combo.currentData() == PRESET_ERHEART
+        """True when a preset is the selected effect."""
+        return self.selected_preset() is not None
 
     def _has_selection(self) -> bool:
         return self.current_effect() is not None or self.preset_selected()
+
+    def _load_presets(self) -> None:
+        """Load built-in and user presets; a load error goes to ``status``."""
+        user, err = preset_store.load()
+        self._presets = preset_store.all_presets(user)
+        self._preset_error = err
+        if err:
+            logger.warning("Could not load user presets: %s", err)
+            self.status.emit(err)
+
+    def report_preset_error(self) -> None:
+        """Emit the last preset load error on ``status`` again, once (none: no-op).
+
+        The presets are first loaded in ``__init__``, before ``status`` is
+        connected; a corrupt file is moved aside then, so a reload would not
+        report it. Call this once ``status`` is connected.
+        """
+        error, self._preset_error = self._preset_error, None
+        if error:
+            self.status.emit(error)
+
+    def reload_presets(self) -> None:
+        """Re-read the presets, keeping the current selection when it still exists."""
+        current = self.effect_combo.currentData()
+        self._load_presets()
+        self._fill_effects(self.current_zone())
+        index = self.effect_combo.findData(current) if current is not None else -1
+        if index >= 0:
+            self.effect_combo.blockSignals(True)
+            self.effect_combo.setCurrentIndex(index)
+            self.effect_combo.blockSignals(False)
+        self._on_effect_changed()
 
     def _offers_preset(self) -> bool:
         try:
@@ -189,16 +240,21 @@ class LightingPanel(QWidget):
             logger.warning("Could not check Erheart support", exc_info=True)
             return False
 
-    def _on_zone_changed(self, _index: int = 0) -> None:
-        zone = self.current_zone()
+    def _fill_effects(self, zone: ZoneInfo | None) -> None:
+        """Fill the effect combo with ``zone``'s effects, then the presets."""
         effects = supported_effects(self._dev, zone) if zone is not None else []
         self.effect_combo.blockSignals(True)
         self.effect_combo.clear()
         for effect in effects:
             self.effect_combo.addItem(effect.label, effect.key)
         if zone is not None and self._offers_preset():
-            self.effect_combo.addItem(presets.PRESET_LABEL, PRESET_ERHEART)
+            for preset in self._presets:
+                self.effect_combo.addItem(preset.label, preset_data(preset.key))
         self.effect_combo.blockSignals(False)
+
+    def _on_zone_changed(self, _index: int = 0) -> None:
+        zone = self.current_zone()
+        self._fill_effects(zone)
         self.zone_combo.setEnabled(bool(self._zones))
         self._update_brightness(zone)
         self._on_effect_changed()
@@ -260,23 +316,27 @@ class LightingPanel(QWidget):
 
     def _on_apply(self) -> None:
         dev, zone, effect = self._dev, self.current_zone(), self.current_effect()
-        preset = self.preset_selected()
-        if dev is None or zone is None or (effect is None and not preset):
+        preset = self.selected_preset()
+        if dev is None or zone is None or (effect is None and preset is None):
             self.status.emit("No lighting effect selected")
             return
         if self._writing:
             return
-        if preset:
-            self._start_preset(dev)
+        if preset is not None:
+            self._start_preset(dev, preset)
             return
         params = self._collect_params()
         self._submit(partial(_stop_preset_then_apply, dev, zone, effect.key, params),
                      partial(self._on_apply_done, effect.label))
 
-    def _start_preset(self, dev: Any) -> None:
-        label = presets.PRESET_LABEL
+    def _start_preset(self, dev: Any, preset: Preset) -> None:
+        """Start and remember ``preset`` on ``dev``; the animator's thread draws frames."""
+        label = preset.label
         try:
-            started = animator.shared_animator().start(dev)
+            started = lighting_state.shared_lighting_state().apply_single(dev, preset)
+        except OSError as exc:  # it runs, but will not come back after a restart
+            self.status.emit(f"Applied {label}, but it could not be remembered: {exc}")
+            return
         except Exception as exc:  # never let an exception escape a slot
             logger.exception("Could not start the %s preset", label)
             self.status.emit(f"Lighting error: {exc}")
