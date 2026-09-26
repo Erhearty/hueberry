@@ -8,13 +8,12 @@ written file. A file that cannot be parsed is moved aside to ``.bak`` rather
 than overwritten, so a user's macros are never silently lost.
 """
 
-import contextlib
 import json
 import logging
 import os
-import tempfile
 from pathlib import Path
 
+from hueberry import config_files
 from hueberry.macros.model import MacroConfig, ModelError
 
 logger = logging.getLogger(__name__)
@@ -32,6 +31,7 @@ DIR_MODE = 0o700
 ENCODING = "utf-8"
 JSON_INDENT = 2
 MAX_FILE_BYTES = 8 * 1024 * 1024
+QUARANTINE_KIND = "macro file"  # log wording: "Corrupt macro file ..."
 
 
 def config_path() -> Path:
@@ -54,14 +54,7 @@ def _parse(raw: bytes) -> MacroConfig:
 
 def _quarantine(path: Path, reason: Exception) -> str:
     """Move a corrupt file to ``<name>.bak`` and describe what happened."""
-    backup = path.with_name(path.name + BACKUP_SUFFIX)
-    try:
-        os.replace(path, backup)
-    except OSError as exc:
-        logger.error("Corrupt macro file %s could not be moved aside: %s", path, exc)
-        return f"{path} is invalid ({reason}) and could not be moved aside: {exc}"
-    logger.warning("Corrupt macro file %s moved to %s: %s", path, backup, reason)
-    return f"{path} was invalid ({reason}); it was moved to {backup}"
+    return config_files.quarantine(path, reason, QUARANTINE_KIND)
 
 
 def load(path: Path | None = None) -> tuple[MacroConfig, str | None]:
@@ -93,18 +86,7 @@ def save(config: MacroConfig, path: Path | None = None) -> None:
     """
     config.validate()
     path = path if path is not None else config_path()
-    path.parent.mkdir(mode=DIR_MODE, parents=True, exist_ok=True)
     payload = _serialise(config)
-    fd, temp_name = tempfile.mkstemp(dir=path.parent, prefix=TEMP_PREFIX, suffix=TEMP_SUFFIX)
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            os.fchmod(handle.fileno(), FILE_MODE)
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_name, path)
-    except BaseException:
-        with contextlib.suppress(FileNotFoundError):
-            os.unlink(temp_name)
-        raise
+    config_files.atomic_write(path, payload, temp_prefix=TEMP_PREFIX, mode=FILE_MODE,
+                              dir_mode=DIR_MODE)
     logger.info("Saved macros to %s", path)

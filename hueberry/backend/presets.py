@@ -1,12 +1,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # SPDX-FileCopyrightText: 2025 Hueberry contributors
-"""The Erheart lighting preset: a pink/purple diagonal wave.
+"""The Erheart lighting preset: a pink/purple diagonal wave, and the built-in presets.
 
 Pure maths only - nothing here imports openrazer or PyQt6 - so the animator
 (:mod:`hueberry.backend.animator`) and the tests share one definition of the
 colours. Colours are ``(r, g, b)`` tuples of 0-255 integers; positions and
 offsets are fractions of one wave cycle (only ``value % 1`` matters).
+
+The animator renders :data:`ERHEART` through :mod:`hueberry.backend.effects`;
+the functions below are the reference maths it must match byte for byte.
 """
+
+from hueberry.backend.effects import DIRECTION_FORWARD, EFFECT_WAVE, Preset
 
 PRESET_KEY = "erheart"
 PRESET_LABEL = "Erheart"
@@ -16,9 +21,6 @@ WAVE_WIDTH = 1.0  # distance (in cycles) over which the wave fades to black
 WAVE_SPEED = 0.04  # cycles advanced per frame
 BRIGHTNESS = 1.0  # overall scale applied to every colour
 FPS = 60  # animation frames per second
-
-#: Devices that do not animate but get one fixed static colour.
-SERIAL_OVERRIDES: dict[str, tuple[int, int, int]] = {"ST2433V02000015": (255, 58, 130)}
 
 # A zone device is treated as the far corner of a 2x2 grid.
 ZONE_ROW = 1
@@ -47,6 +49,17 @@ def hex_to_rgb(text: str) -> tuple[int, int, int]:
 
 #: :data:`PALETTE_HEX` as ``(r, g, b)`` tuples.
 PALETTE: tuple[tuple[int, int, int], ...] = tuple(hex_to_rgb(text) for text in PALETTE_HEX)
+
+#: Cycles per second: :data:`WAVE_SPEED` per frame at :data:`FPS` frames per second.
+ERHEART_SPEED = WAVE_SPEED * FPS
+
+#: The Erheart preset as data, rendered by :func:`hueberry.backend.effects.render_run`.
+ERHEART = Preset(key=PRESET_KEY, label=PRESET_LABEL, effect=EFFECT_WAVE, palette=PALETTE,
+                 speed=ERHEART_SPEED, direction=DIRECTION_FORWARD, brightness=BRIGHTNESS,
+                 width=WAVE_WIDTH, builtin=True)
+
+#: Presets that ship with Hueberry (read-only; user presets may not reuse their keys).
+BUILTIN_PRESETS: tuple[Preset, ...] = (ERHEART,)
 
 
 def palette_colour_at(pos: float) -> tuple[int, int, int]:

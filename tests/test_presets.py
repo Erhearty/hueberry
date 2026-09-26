@@ -63,8 +63,14 @@ def test_next_offset_advances_and_wraps():
     assert 0.0 <= presets.next_offset(0.9999) < 1.0
 
 
-def test_serial_override():
-    assert presets.SERIAL_OVERRIDES == {"ST2433V02000015": (255, 58, 130)}
+def test_erheart_is_a_builtin_preset():
+    assert not hasattr(presets, "SERIAL_OVERRIDES")
+    erheart = presets.ERHEART
+    erheart.validate()
+    assert erheart.builtin and erheart.key == presets.PRESET_KEY
+    assert erheart.palette == presets.PALETTE
+    assert erheart.speed == pytest.approx(presets.WAVE_SPEED * presets.FPS)
+    assert presets.BUILTIN_PRESETS == (erheart,)
 
 
 @pytest.mark.parametrize("text", [
