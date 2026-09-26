@@ -31,6 +31,10 @@ SLUG_SEPARATOR = "-"
 FIRST_SUFFIX = 2  # "name", then "name-2", "name-3", ...
 NON_SLUG = re.compile(r"[^a-z0-9]+")
 
+# The error of the last load() that failed, kept until a save() succeeds: a
+# corrupt file is moved aside on the first read, so later loads see no file.
+_session_error: str | None = None
+
 
 def config_path() -> Path:
     """``$XDG_CONFIG_HOME/hueberry/presets.json`` (default ``~/.config``)."""
@@ -69,8 +73,27 @@ def _parse(raw: bytes) -> list[Preset]:
 
 def load(path: Path | None = None) -> tuple[list[Preset], str | None]:
     """Return ``(user_presets, error)``; a missing file is no presets, not an error."""
+    global _session_error
     path = path if path is not None else config_path()
-    return config_files.load_file(path, QUARANTINE_KIND, _parse, list)
+    loaded, error = config_files.load_file(path, QUARANTINE_KIND, _parse, list)
+    if error is not None:
+        _session_error = error  # a later load of the now-missing file keeps it
+    return loaded, error
+
+
+def session_error() -> str | None:
+    """The error of the last :func:`load` that failed this session, until a save succeeds.
+
+    After a corrupt file was quarantined, a later load finds no file and no
+    error; callers use this so they do not mistake that for "no user presets".
+    """
+    return _session_error
+
+
+def reset_session_error() -> None:
+    """Forget the sticky load error (a hook for tests)."""
+    global _session_error
+    _session_error = None
 
 
 def _check_saveable(user_presets: list[Preset]) -> None:
@@ -96,6 +119,7 @@ def save(user_presets: Iterable[Preset], path: Path | None = None) -> None:
     path = path if path is not None else config_path()
     data = {VERSION_KEY: SCHEMA_VERSION, PRESETS_KEY: [p.to_dict() for p in user_presets]}
     config_files.atomic_write(path, config_files.dump_json(data), temp_prefix=TEMP_PREFIX)
+    reset_session_error()  # the file on disk is valid again
     logger.info("Saved %d presets to %s", len(user_presets), path)
 
 

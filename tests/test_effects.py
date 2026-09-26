@@ -153,6 +153,15 @@ def test_from_dict_rejects_invalid(data):
         Preset.from_dict(data)
 
 
+def test_trailing_newline_is_rejected():
+    with pytest.raises(PresetError):
+        effects.hex_to_rgb("#ff0000\n")
+    with pytest.raises(PresetError):
+        _preset(key="calm\n").validate()
+    assert effects.hex_to_rgb("#ff0000") == RED
+    _preset(key="calm").validate()
+
+
 # -- effect types ----------------------------------------------------------------
 
 def test_wave_crest_is_full_brightness():

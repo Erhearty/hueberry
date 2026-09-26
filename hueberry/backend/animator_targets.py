@@ -15,8 +15,8 @@ from typing import Any
 
 from hueberry.backend import presets
 from hueberry.backend.devices import MATRIX_CAPABILITY, list_zones
-from hueberry.backend.effects import Frame
-from hueberry.backend.led_layout import DeviceShape
+from hueberry.backend.effects import Frame, Preset
+from hueberry.backend.led_layout import DeviceShape, Layout
 from hueberry.backend.lighting import is_effect_supported
 
 logger = logging.getLogger(__name__)
@@ -25,6 +25,7 @@ STATIC_EFFECT = "static"
 KIND_MATRIX = "matrix"  # per-key frame through fx.advanced
 KIND_ZONES = "zones"  # one colour through zone.static
 FIRST = 0  # a zone device's frame is 1x1: its only LED is frame[0][0]
+MIN_MATRIX_SIZE = 1  # a matrix needs at least one row and one column
 
 
 @dataclass
@@ -37,7 +38,8 @@ class Target:
     rows: int = 0
     cols: int = 0
     zones: list = field(default_factory=list)
-    applied: bool = False  # a frame was painted (non-animated presets paint once)
+    # (preset, layout) of the last painted frame; non-animated presets paint once per pair
+    painted: tuple[Preset, Layout] | None = None
     paused: bool = False  # stale device object; resumes on refresh()
     active: bool = True  # False once stopped or replaced; never rendered again
     warned: bool = False  # one warning per target for unexpected errors
@@ -47,6 +49,11 @@ class Target:
         if self.kind == KIND_MATRIX:
             return DeviceShape.of_matrix(self.serial, self.rows, self.cols)
         return DeviceShape.of_zones(self.serial)
+
+    def painted_with(self, preset: Preset, layout: Layout) -> bool:
+        """True when the last painted frame was of exactly this ``preset`` and ``layout``."""
+        return (self.painted is not None and self.painted[0] is preset
+                and self.painted[1] is layout)
 
 
 def device_serial(dev: Any) -> str | None:
@@ -67,8 +74,11 @@ def _matrix_target(serial: str, dev: Any) -> Target | None:
         advanced = dev.fx.advanced if dev.has(MATRIX_CAPABILITY) else None
         if advanced is None:
             return None
-        return Target(serial, KIND_MATRIX, advanced=advanced,
-                      rows=int(advanced.rows), cols=int(advanced.cols))
+        rows, cols = int(advanced.rows), int(advanced.cols)
+        if rows < MIN_MATRIX_SIZE or cols < MIN_MATRIX_SIZE:
+            logger.info("Key matrix of %s is empty (%dx%d)", serial, rows, cols)
+            return None
+        return Target(serial, KIND_MATRIX, advanced=advanced, rows=rows, cols=cols)
     except Exception:  # D-Bus errors / no advanced matrix
         logger.warning("No usable key matrix on %s", serial, exc_info=True)
         return None
@@ -104,11 +114,14 @@ def _paint(target: Target, frame: Frame) -> None:
         zone.static(*colour)
 
 
-def render_safely(target: Target, frame: Frame) -> None:
-    """Paint one frame; pause the target on stale errors, keep it otherwise."""
+def render_safely(target: Target, frame: Frame, preset: Preset, layout: Layout) -> None:
+    """Paint one frame of ``preset`` on ``layout``; pause on stale errors, keep otherwise.
+
+    A successful paint records ``(preset, layout)`` in ``target.painted``.
+    """
     try:
         _paint(target, frame)
-        target.applied = True
+        target.painted = (preset, layout)
     except Exception as exc:  # D-Bus / sysfs errors from the device
         if presets.is_not_ready_error(exc):
             logger.debug("Device %s not ready, retrying: %s", target.serial, exc)

@@ -253,6 +253,20 @@ def _fake_evdev(monkeypatch):
         device.close()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_lighting_state(monkeypatch, tmp_path, _fake_openrazer):
+    """Keep config files out of the real ~/.config; no shared lighting state leaks.
+
+    Also forgets the sticky presets.json load error before and after each test.
+    """
+    from hueberry.backend import lighting_state, preset_store
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-config"))
+    monkeypatch.setattr(lighting_state, "_shared", None)
+    preset_store.reset_session_error()
+    yield
+    preset_store.reset_session_error()
+
+
 @pytest.fixture
 def fake_evdev(_fake_evdev):
     """The fake ``evdev`` module (register devices with ``InputDevice(path, name=...)``)."""

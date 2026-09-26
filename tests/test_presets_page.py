@@ -7,10 +7,10 @@ import json
 import pytest
 from PyQt6.QtCore import Qt
 
-from hueberry.backend import animator, preset_store, presets
+from hueberry.backend import animator, lighting_state, preset_store, presets
 from hueberry.backend.devices import describe_device
 from hueberry.backend.effects import EFFECT_BREATHE, Preset
-from hueberry.ui import worker
+from hueberry.ui import presets_actions, worker
 from hueberry.ui.preset_editor import PresetEditor
 from hueberry.ui.presets_page import BUILTIN_SUFFIX, PresetsPage
 
@@ -43,6 +43,8 @@ def anim(monkeypatch):
     """A passive animator installed as the shared one."""
     passive = animator.Animator(start_thread=False)
     monkeypatch.setattr(animator, "shared_animator", lambda: passive)
+    state = lighting_state.LightingState(passive)
+    monkeypatch.setattr(lighting_state, "shared_lighting_state", lambda: state)
     return passive
 
 
@@ -213,6 +215,33 @@ def test_saving_running_preset_updates_animation(page, anim, devices):
     (run,) = anim.runs()
     assert run.preset.key == key
     assert run.preset.palette[0] == RED
+
+
+def test_apply_unsaved_preset_notes_it(page, devices):
+    page.new_button.click()
+    page.set_devices(_entries(devices[:1]))
+    _tick_all(page)
+    page.apply_button.click()
+    assert page.messages[-1].endswith(presets_actions.UNSAVED_NOTE)
+    assert lighting_state.shared_lighting_state().assignments()[0].preset_key \
+        == page.selected_key()
+
+
+def test_delete_forgets_assignment_on_save(page, anim, devices):
+    page.new_button.click()
+    page.save_button.click()
+    key = page.selected_key()
+    page.set_devices(_entries(devices[:1]))
+    _tick_all(page)
+    page.apply_button.click()
+    assert page.messages[-1] == "New preset applied to 1 device(s)"
+    page.delete_button.click()
+    state = lighting_state.shared_lighting_state()
+    assert [a.preset_key for a in state.assignments()] == [key]  # not saved yet
+    assert anim.running_preset(KBD_SERIAL) == key
+    page.save_button.click()
+    assert state.assignments() == []
+    assert anim.running_preset(KBD_SERIAL) is None
 
 
 def test_ticks_survive_device_reload(page, devices):

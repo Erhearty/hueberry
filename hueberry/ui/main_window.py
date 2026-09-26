@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QMainWindow, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
 )
 
-from hueberry.backend import animator
+from hueberry.backend import animator, lighting_state
 from hueberry.backend.daemon import DaemonService
 from hueberry.backend.devices import DeviceInfo, describe_device
 from hueberry.ui import worker
@@ -44,7 +44,7 @@ UNKNOWN_ERROR = "unknown error"
 MACROS_TEXT = "&Macros\u2026"
 MACROS_SHORTCUT = "Ctrl+M"
 MACROS_TIP = "Record, edit and bind macros (Ctrl+M)"
-PRESETS_TEXT = "P&resets\u2026"
+PRESETS_TEXT = "Presets\u2026"  # no mnemonic: every letter is taken; Ctrl+P opens it
 PRESETS_SHORTCUT = "Ctrl+P"
 PRESETS_TIP = "Create, edit and apply lighting presets (Ctrl+P)"
 
@@ -147,6 +147,7 @@ class MainWindow(QMainWindow):
             lambda: self.run_service_action("Start daemon", service.start_and_connect))
         for panel in (self.lighting_panel, self.mouse_panel, self.daemon_panel):
             panel.status.connect(self.show_status)
+        self.lighting_panel.report_preset_error()  # loaded before status was connected
         self.daemon_panel.daemon_changed.connect(self.reload)
         self.daemon_panel.busy_changed.connect(self._on_panel_busy)
         self._connect_macros()
@@ -157,6 +158,7 @@ class MainWindow(QMainWindow):
         self.presets_button.clicked.connect(self.show_presets)
         self.presets_page.back_requested.connect(self._leave_presets)
         self.presets_page.status.connect(self.show_status)
+        self.presets_page.presets_saved.connect(self.lighting_panel.reload_presets)
 
     def _connect_macros(self) -> None:
         self.macros_action.triggered.connect(self.show_macros)
@@ -295,9 +297,12 @@ class MainWindow(QMainWindow):
             self._show_home()
 
     def _refresh_animations(self, devices: list[Any]) -> None:
-        """Rebind preset animations to the new device objects; drop lost devices."""
+        """Rebind preset animations to the new device objects, then restore saved ones."""
         try:
             animator.shared_animator().refresh(devices)
+            error = lighting_state.shared_lighting_state().restore(devices)
+            if error:
+                self.show_status(f"Lighting state: {error}")
         except Exception as exc:  # a failing animator must not break the reload
             logger.exception("Refreshing lighting animations failed")
             self.show_status(f"Animation error: {exc}")

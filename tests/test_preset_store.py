@@ -53,6 +53,19 @@ def test_corrupt_file_moves_to_bak(config_home, content):
     assert (config_home / "presets.json.bak").read_bytes() == content
 
 
+def test_load_error_is_sticky_until_save(config_home):
+    config_home.mkdir(parents=True)
+    (config_home / "presets.json").write_bytes(b"{nope")
+    assert preset_store.session_error() is None
+    _loaded, error = preset_store.load()
+    assert error and preset_store.session_error() == error
+    assert preset_store.load() == ([], None)  # the file was moved aside
+    assert preset_store.session_error() == error
+    preset_store.save([_preset()])
+    assert preset_store.session_error() is None
+    assert preset_store.load() == ([_preset()], None)
+
+
 def test_builtin_clash_and_duplicates_are_skipped(config_home):
     config_home.mkdir(parents=True)
     clash = _preset(presets.PRESET_KEY, "Mine").to_dict()

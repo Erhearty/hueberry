@@ -2,11 +2,14 @@
 # SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Tests for built-in and user presets in the lighting panel (offscreen, pytest-qt)."""
 
+import logging
+
 import pytest
 
-from hueberry.backend import animator, preset_store
+from hueberry.backend import animator, lighting_state, preset_store
 from hueberry.backend.effects import EFFECT_BREATHE, EFFECT_WAVE, Preset
 from hueberry.ui import worker
+from hueberry.ui import lighting_panel
 from hueberry.ui.lighting_panel import PRESET_DATA_PREFIX, PRESET_ERHEART, LightingPanel
 
 MATRIX_CAPS = ("lighting", "lighting_static", "lighting_breath_dual", "lighting_led_matrix")
@@ -49,6 +52,8 @@ def passive_animator(monkeypatch):
     """Replace the shared animator with a thread-less one."""
     anim = animator.Animator(start_thread=False)
     monkeypatch.setattr(animator, "shared_animator", lambda: anim)
+    state = lighting_state.LightingState(anim)
+    monkeypatch.setattr(lighting_state, "shared_lighting_state", lambda: state)
     return anim
 
 
@@ -109,6 +114,25 @@ def test_reload_picks_up_new_preset_and_keeps_selection(qtbot, make_device, pass
     assert ("preset:ocean", "Ocean") in _preset_items(panel)
     assert panel.selected_preset() == SUNSET
     assert panel.apply_button.isEnabled()
+
+
+class _FailingState:
+    """A lighting state whose stop_device always fails."""
+
+    def stop_device(self, serial):
+        raise RuntimeError(f"cannot stop {serial}")
+
+
+def test_failed_stop_logs_serial_not_erheart(qtbot, make_device, passive_animator, sync_worker,
+                                             monkeypatch, caplog):
+    monkeypatch.setattr(lighting_state, "shared_lighting_state", _FailingState)
+    dev = make_device(serial=SERIAL, capabilities=MATRIX_CAPS)
+    panel = _make_panel(qtbot, dev)
+    _select(panel, "static")
+    with caplog.at_level(logging.ERROR, logger=lighting_panel.__name__):
+        panel.apply_button.click()
+    assert f"Could not stop the running preset on {SERIAL}" in caplog.text
+    assert "Erheart" not in caplog.text
 
 
 def test_load_error_reported_on_status(qtbot, make_device, passive_animator):

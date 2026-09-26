@@ -9,7 +9,7 @@ from PyQt6 import sip
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QAbstractSlider, QWidget
 
-from hueberry.backend import animator
+from hueberry.backend import animator, lighting_state
 from hueberry.backend.daemon import DaemonService
 from hueberry.backend.devices import describe_device
 from hueberry.ui import lighting_panel as lighting_module
@@ -200,6 +200,8 @@ def passive_animator(monkeypatch):
     """Replace the shared animator with a thread-less one."""
     anim = animator.Animator(start_thread=False)
     monkeypatch.setattr(animator, "shared_animator", lambda: anim)
+    state = lighting_state.LightingState(anim)
+    monkeypatch.setattr(lighting_state, "shared_lighting_state", lambda: state)
     return anim
 
 

@@ -84,13 +84,16 @@ def _unique_targets(devices: Iterable[Any]) -> list[Target]:
 def _render_run(preset: Preset, targets: list[Target], layout: Layout, phase: float) -> None:
     """Paint one frame of ``preset`` on the run's active, unpaused targets.
 
-    A non-animated preset paints each target once (until ``applied`` is reset).
+    A non-animated preset paints each target once per (preset, layout): a
+    target repaints when what it last painted differs, so a frame of an older
+    preset that was still in flight never hides the current one.
     """
     animated = effects.is_animated(preset)
     frames = effects.render_run(preset, layout, phase)
     for target in targets:
-        if target.active and not target.paused and (animated or not target.applied):
-            render_safely(target, frames[target.serial])
+        fresh = animated or not target.painted_with(preset, layout)
+        if target.active and not target.paused and fresh:
+            render_safely(target, frames[target.serial], preset, layout)
 
 
 class Animator:
@@ -142,9 +145,7 @@ class Animator:
         with self._lock:
             updated = [run for run in self._runs if run.preset.key == preset.key]
             for run in updated:
-                run.preset = preset
-                for target in run.targets:
-                    target.applied = False  # repaint non-animated presets too
+                run.preset = preset  # targets repaint: they last painted another preset
         logger.info("Preset %s updated on %d runs", preset.key, len(updated))
         return len(updated)
 
@@ -247,9 +248,7 @@ class Animator:
         target = run.targets.pop(index)
         target.active = False
         if run.targets:
-            run.relayout()
-            for member in run.targets:
-                member.applied = False  # the frames change with the layout
+            run.relayout()  # members repaint: they last painted the old layout
         else:
             self._runs.remove(run)
         return target

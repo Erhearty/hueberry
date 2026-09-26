@@ -66,7 +66,7 @@ class PresetError(ValueError):
 
 def hex_to_rgb(text: str) -> RGB:
     """Convert ``'#rrggbb'`` to an ``(r, g, b)`` tuple; PresetError when malformed."""
-    if not isinstance(text, str) or not HEX_PATTERN.match(text):
+    if not isinstance(text, str) or not HEX_PATTERN.fullmatch(text):
         raise PresetError(f"invalid colour {text!r} (expected #rrggbb)")
     digits = text.removeprefix(HEX_PREFIX)
     channels = [int(digits[index:index + HEX_CHANNEL_WIDTH], HEX_BASE)
@@ -110,7 +110,7 @@ class Preset:
 
     def validate(self) -> None:
         """Raise PresetError describing the first invalid field."""
-        _check(isinstance(self.key, str) and bool(KEY_PATTERN.match(self.key)),
+        _check(isinstance(self.key, str) and bool(KEY_PATTERN.fullmatch(self.key)),
                f"invalid preset key {self.key!r}")
         _check(isinstance(self.label, str) and bool(self.label.strip()), "a preset needs a name")
         _check(len(self.label) <= MAX_LABEL_LENGTH,

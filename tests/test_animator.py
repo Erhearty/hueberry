@@ -284,6 +284,33 @@ def test_update_preset_changes_next_frame_and_keeps_phase(anim, make_device):
     assert _drawn(kbd.fx.advanced) == effects.render_run(wave, layout, phase)[KBD_SERIAL]
 
 
+def test_in_flight_frame_of_old_static_preset_does_not_hide_the_new_one(anim, make_device):
+    kbd = _kbd(make_device)
+    old = _custom(effect=effects.EFFECT_STATIC)
+    anim.start(kbd, old)
+    run = anim._runs[0]
+    targets, layout = list(run.targets), run.layout  # snapshot taken by an in-flight step
+    new = _custom(effect=effects.EFFECT_STATIC, palette=(RED,))
+    assert anim.update_preset(new) == 1
+    animator._render_run(old, targets, layout, animator.START_PHASE)  # the frame lands late
+    assert set(kbd.fx.advanced.draws[-1].values()) == {PINK}
+    anim.step()
+    assert set(kbd.fx.advanced.draws[-1].values()) == {RED}
+    anim.step()
+    assert len(kbd.fx.advanced.draws) == 2
+
+
+@pytest.mark.parametrize("empty", ["rows", "cols"])
+def test_empty_matrix_falls_back_to_zones(anim, make_device, empty):
+    kbd = _kbd(make_device)
+    setattr(kbd.fx.advanced, empty, 0)
+    assert anim.start(kbd, presets.ERHEART)
+    assert anim.start_group([kbd], presets.ERHEART) == [KBD_SERIAL]
+    anim.step()
+    assert kbd.fx.advanced.draws == []
+    assert _static_calls(kbd.fx.calls)
+
+
 def test_stopping_one_group_member_keeps_the_others(anim, make_device):
     kbd, mouse = _kbd(make_device), _mouse(make_device)
     anim.start_group([kbd, mouse], presets.ERHEART)

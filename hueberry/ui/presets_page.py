@@ -6,13 +6,15 @@ User presets are edited in memory and written to presets.json by *Save*
 (through ``worker.run_async``, looked up on the module so tests can run it
 inline); a saved preset that is running is swapped in on the animator. The
 'Apply to' section starts a preset on each checked device on its own, or on
-all of them as one synced group, and stops it again.
+all of them as one synced group, and stops it again. Apply, Stop and Save go
+through :mod:`hueberry.ui.presets_actions`, so the lighting is remembered
+across restarts; a deleted preset's devices are forgotten at Save time.
 """
 
 import logging
 from typing import Any, Callable
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import QSignalBlocker, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QButtonGroup, QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton,
     QRadioButton, QVBoxLayout, QWidget,
@@ -20,7 +22,7 @@ from PyQt6.QtWidgets import (
 
 from hueberry.backend import animator, preset_store
 from hueberry.backend.effects import EFFECT_WAVE, MAX_LABEL_LENGTH, Preset, PresetError
-from hueberry.ui import theme, worker
+from hueberry.ui import presets_actions, presets_preview, theme, worker
 from hueberry.ui.preset_editor import PresetEditor
 
 __all__ = ["PresetsPage"]
@@ -59,6 +61,7 @@ class PresetsPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._user, self._load_error = preset_store.load()
+        self._saved_keys = {p.key for p in self._user}  # user presets in presets.json
         self._dirty_keys: set[str] = set()  # user presets edited since the last save
         self._devices: dict[str, Any] = {}  # serial -> device object (supported ones)
         self._build_widgets()
@@ -92,6 +95,7 @@ class PresetsPage(QWidget):
             self.mode_group.addButton(radio)
         self.apply_button = QPushButton("&Apply", self)
         self.stop_button = QPushButton("S&top", self)
+        self.preview = presets_preview.PresetsPreview(self)  # live LED preview
 
     def _build_layout(self) -> None:
         header = QHBoxLayout()
@@ -111,7 +115,7 @@ class PresetsPage(QWidget):
         body = QHBoxLayout()
         body.addLayout(library, 1)
         body.addLayout(buttons)
-        body.addWidget(self.editor, 2)
+        body.addLayout(self.preview.editor_column(self.editor), 2)
         outer = QVBoxLayout(self)
         outer.addLayout(header)
         outer.addWidget(self.error_label)
@@ -176,23 +180,24 @@ class PresetsPage(QWidget):
         """Re-read presets.json unless there are unsaved edits."""
         if not self._dirty_keys:
             self._user, self._load_error = preset_store.load()
+            self._saved_keys = {p.key for p in self._user}
             self._show_presets()
 
     def set_devices(self, entries: list[tuple[Any, Any]]) -> None:
         """Show the ``(device, DeviceInfo)`` entries that can show presets, keeping ticks."""
         checked = set(self.checked_serials())
         self._devices = {}
-        self.device_list.clear()
-        for dev, info in entries:
-            if not animator.supports(dev):
-                continue
-            self._devices[info.serial] = dev
-            item = QListWidgetItem(info.name or info.serial, self.device_list)
-            item.setData(SERIAL_ROLE, info.serial)
-            item.setToolTip(info.serial)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            ticked = info.serial in checked
-            item.setCheckState(Qt.CheckState.Checked if ticked else Qt.CheckState.Unchecked)
+        with QSignalBlocker(self.device_list):  # no per-item preview refresh; one below
+            self.device_list.clear()
+            for dev, info in self.preview.set_entries(entries):  # one shape read each
+                self._devices[info.serial] = dev
+                item = QListWidgetItem(info.name or info.serial, self.device_list)
+                item.setData(SERIAL_ROLE, info.serial)
+                item.setToolTip(info.serial)
+                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                ticked = info.serial in checked
+                item.setCheckState(Qt.CheckState.Checked if ticked else Qt.CheckState.Unchecked)
+        self.preview.refresh_devices()
         self._update_buttons()
 
     def checked_serials(self) -> list[str]:
@@ -202,10 +207,12 @@ class PresetsPage(QWidget):
                 if item.checkState() == Qt.CheckState.Checked]
 
     def save(self) -> None:
-        """Write the user presets to presets.json in the background."""
+        """Write presets.json in the background; deleted presets are only forgotten now."""
         snapshot = list(self._user)
         saved = [p for p in snapshot if p.key in self._dirty_keys]
-        self._run(lambda: preset_store.save(snapshot), lambda _r: self._on_saved(saved),
+        deleted = self._saved_keys - {p.key for p in snapshot}
+        self._run(lambda: presets_actions.save_presets(snapshot, deleted),
+                  lambda error: self._on_saved(saved, snapshot, error),
                   lambda message: self._report(SAVE_FAILED_TEXT.format(error=message)))
 
     # -- list and editing ----------------------------------------------------
@@ -235,6 +242,7 @@ class PresetsPage(QWidget):
 
     def _show_selected(self) -> None:
         self.editor.set_preset(self._selected())
+        self.preview.refresh_preset()
         self._update_buttons()
 
     def _update_buttons(self) -> None:
@@ -283,7 +291,7 @@ class PresetsPage(QWidget):
             self._delete(key)
 
     def _delete(self, key: str) -> None:
-        """Remove the user preset ``key`` (saved by the next Save)."""
+        """Remove the user preset ``key`` (saved, and forgotten, by the next Save)."""
         before = len(self._user)
         self._user = [p for p in self._user if p.key != key]
         if len(self._user) == before:
@@ -293,11 +301,16 @@ class PresetsPage(QWidget):
         self._show_presets()
 
     @worker.ignore_deleted
-    def _on_saved(self, saved: list[Preset]) -> None:
+    def _on_saved(self, saved: list[Preset], snapshot: list[Preset],
+                  forget_error: str | None) -> None:
         self._dirty_keys.clear()
+        self._saved_keys = {p.key for p in snapshot}
         self._load_error = None
         self._show_presets()
-        if self._update_running(saved):
+        updated = self._update_running(saved)
+        if forget_error is not None:
+            self._report(presets_actions.FORGET_FAILED_TEXT.format(error=forget_error))
+        elif updated:
             self.status.emit(SAVED_TEXT)
         self.presets_saved.emit()
 
@@ -334,26 +347,25 @@ class PresetsPage(QWidget):
 
     def _apply_single(self, devs: list[Any], preset: Preset) -> None:
         """Start ``preset`` on each device in its own run."""
-        def job() -> int:
-            return sum(1 for dev in devs if animator.shared_animator().start(dev, preset))
-        self._run(job, lambda count: self._on_applied(preset, count),
+        self._run(lambda: presets_actions.apply_single(devs, preset),
+                  lambda count: self._on_applied(preset, count),
                   lambda message: self._report(APPLY_FAILED_TEXT.format(
                       label=preset.label, error=message)))
 
     def _apply_group(self, devs: list[Any], preset: Preset) -> None:
         """Start ``preset`` on all devices as one synced group (in list order)."""
-        def job() -> int:
-            return len(animator.shared_animator().start_group(devs, preset))
-        self._run(job, lambda count: self._on_applied(preset, count),
+        self._run(lambda: presets_actions.apply_group(devs, preset),
+                  lambda count: self._on_applied(preset, count),
                   lambda message: self._report(APPLY_FAILED_TEXT.format(
                       label=preset.label, error=message)))
 
     @worker.ignore_deleted
     def _on_applied(self, preset: Preset, count: int) -> None:
-        if count:
-            self.status.emit(APPLIED_TEXT.format(label=preset.label, count=count))
-        else:
+        if not count:
             self._report(NOT_SUPPORTED_TEXT.format(label=preset.label))
+            return
+        note = presets_actions.unsaved_note(preset.key, self._saved_keys)
+        self.status.emit(APPLIED_TEXT.format(label=preset.label, count=count) + note)
 
     def _stop_clicked(self) -> None:
         serials = self.checked_serials()
@@ -363,10 +375,9 @@ class PresetsPage(QWidget):
         self._stop(serials)
 
     def _stop(self, serials: list[str]) -> None:
-        """Stop the animation on each of ``serials`` (restoring the device effect)."""
-        def job() -> int:
-            return sum(1 for serial in serials if animator.shared_animator().stop(serial))
-        self._run(job, lambda count: self.status.emit(STOPPED_TEXT.format(count=count)),
+        """Stop and forget the preset on each of ``serials`` (restoring the device effect)."""
+        self._run(lambda: presets_actions.stop(serials),
+                  lambda count: self.status.emit(STOPPED_TEXT.format(count=count)),
                   lambda message: self._report(STOP_FAILED_TEXT.format(error=message)))
 
     # -- helpers -------------------------------------------------------------
