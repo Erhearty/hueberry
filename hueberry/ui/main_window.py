@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 
 WINDOW_TITLE = "Hueberry"
 DEFAULT_WIDTH = 900
-DEFAULT_HEIGHT = 560
+DEFAULT_HEIGHT = 640  # fits the device page with its bottom lighting preview
 STATUS_TIMEOUT_MS = 8000
 REPOLL_TEXT = "Re-scan"
 RESTART_TEXT = "Restart daemon"

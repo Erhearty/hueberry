@@ -1,13 +1,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # SPDX-FileCopyrightText: 2025 Hueberry contributors
-"""Per-device page: back button + name header, a hero column and Lighting/Performance/Info tabs."""
+"""Per-device page: back button + name header, a hero column and Lighting/Performance/Info tabs.
+
+The lighting preview fills the remaining space at the bottom of the page and grows and
+shrinks with the window; while hidden, the header and body take all the space.
+"""
 
 from typing import Any
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QKeySequence, QPixmap, QShortcut
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QTabWidget, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QPushButton, QSizePolicy, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from hueberry.backend.devices import DeviceInfo
@@ -28,6 +32,8 @@ TAB_INFO = "&Info"
 PERFORMANCE_TAB_INDEX = 1
 HERO_WIDTH_PX = 220  # fixed width of the device image column
 HERO_ICON_SIZE = 160  # device image size in the hero column
+PREVIEW_MIN_WIDTH_PX = 560  # minimum width of the bottom lighting preview
+PREVIEW_MIN_HEIGHT_PX = 200  # minimum height of the bottom lighting preview
 PREVIEW_ACCESSIBLE_NAME = "Lighting preview"
 
 
@@ -53,6 +59,9 @@ class DevicePage(QWidget):
         theme.set_role(self.type_label, "muted")
         self.lighting_preview = LedPreview(self)
         self.lighting_preview.setAccessibleName(PREVIEW_ACCESSIBLE_NAME)
+        self.lighting_preview.setMinimumSize(PREVIEW_MIN_WIDTH_PX, PREVIEW_MIN_HEIGHT_PX)
+        self.lighting_preview.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.lighting_preview.setVisible(False)
         self._build_tabs()
         self.lighting_panel.preview_changed.connect(self._refresh_preview)
@@ -76,7 +85,7 @@ class DevicePage(QWidget):
         self.tabs.addTab(self.info_panel, TAB_INFO)
 
     def _build_hero(self) -> QWidget:
-        """Return the fixed-width left column: device image, type and lighting preview."""
+        """Return the fixed-width left column: device image and type (no preview)."""
         hero = QWidget(self)
         hero.setFixedWidth(HERO_WIDTH_PX)
         column = QVBoxLayout(hero)
@@ -84,7 +93,6 @@ class DevicePage(QWidget):
         column.setSpacing(theme.SPACING_S)
         column.addWidget(self.icon_label)
         column.addWidget(self.type_label)
-        column.addWidget(self.lighting_preview)
         column.addStretch(1)
         return hero
 
@@ -96,7 +104,8 @@ class DevicePage(QWidget):
         body.addWidget(self.tabs, 1)
         outer = layouts.page_layout(self)
         outer.addLayout(header)
-        outer.addLayout(body, 1)
+        outer.addLayout(body)
+        outer.addWidget(self.lighting_preview, 1)
 
     def _build_shortcuts(self) -> None:
         self.back_button.clicked.connect(self.back_requested)
@@ -121,7 +130,7 @@ class DevicePage(QWidget):
         self._set_performance_tab(is_mouse)
 
     def _update_preview_device(self, dev: Any, info: DeviceInfo | None) -> None:
-        """Show ``dev`` in the hero preview; hidden when it has no lighting target."""
+        """Show ``dev`` in the bottom preview; hidden when it has no lighting target."""
         shown = None
         if dev is not None and info is not None:
             shown = presets_preview.preview_device(dev, info)
