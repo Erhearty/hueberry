@@ -12,12 +12,12 @@ from typing import Any
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel, QPushButton, QSlider, QSpinBox,
+    QCheckBox, QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel, QPushButton, QSlider, QSpinBox,
     QVBoxLayout, QWidget,
 )
 
 from hueberry.backend.mouse import MIN_DPI, MouseControls, MouseError
-from hueberry.ui import worker
+from hueberry.ui import layouts, theme, worker
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +71,7 @@ class MousePanel(QWidget):
         self.poll_combo = QComboBox(self)
         self.poll_combo.setAccessibleName("Polling rate")
         self.apply_button = QPushButton("Apply &mouse settings", self)
+        theme.set_role(self.apply_button, "primary")
 
     def _build_layout(self) -> None:
         self.x_label = QLabel("DPI &X:", self)
@@ -79,21 +80,38 @@ class MousePanel(QWidget):
         for label, buddy in ((self.x_label, self.dpi_x_spin), (self.y_label, self.dpi_y_spin),
                              (self.poll_label, self.poll_combo)):
             label.setBuddy(buddy)
+        buttons = QHBoxLayout()
+        buttons.setSpacing(theme.SPACING_S)
+        buttons.addStretch(1)
+        buttons.addWidget(self.apply_button)
+        outer = QVBoxLayout(self)
+        outer.addWidget(self._sensitivity_card())
+        outer.addWidget(self._poll_card())
+        outer.addLayout(buttons)
+        outer.addStretch(1)
+
+    def _sensitivity_card(self) -> QFrame:
+        """Return the Sensitivity card: DPI X (spin + slider), the X/Y lock and DPI Y."""
+        card, layout = layouts.section_card("Sensitivity", self)
         x_row = QHBoxLayout()
         x_row.addWidget(self.dpi_x_spin)
         x_row.addWidget(self.dpi_slider, 1)
         form = QFormLayout()
+        layouts.configure_form(form)
         form.addRow(self.x_label, x_row)
         form.addRow("", self.lock_check)
         form.addRow(self.y_label, self.dpi_y_spin)
+        layout.addLayout(form)
+        return card
+
+    def _poll_card(self) -> QFrame:
+        """Return the Polling rate card."""
+        card, layout = layouts.section_card("Polling rate", self)
+        form = QFormLayout()
+        layouts.configure_form(form)
         form.addRow(self.poll_label, self.poll_combo)
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
-        buttons.addWidget(self.apply_button)
-        outer = QVBoxLayout(self)
-        outer.addLayout(form)
-        outer.addLayout(buttons)
-        outer.addStretch(1)
+        layout.addLayout(form)
+        return card
 
     def _connect_signals(self) -> None:
         self.dpi_x_spin.valueChanged.connect(self._on_x_changed)

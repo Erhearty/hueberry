@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # SPDX-FileCopyrightText: 2025 Hueberry contributors
-"""Main window: device cards, per-device page, daemon status bar and empty state.
+"""Main window: header bar with daemon status, device cards, per-device page and empty state.
 
 Blocking service calls go through ``worker.run_async(...)`` looked up on the
 :mod:`hueberry.ui.worker` module, so tests can monkeypatch it.
@@ -13,13 +13,14 @@ from typing import Any, Callable
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QCloseEvent, QKeySequence
 from PyQt6.QtWidgets import (
-    QDialog, QDialogButtonBox, QMainWindow, QPushButton, QStackedWidget, QVBoxLayout, QWidget,
+    QDialog, QDialogButtonBox, QMainWindow, QStackedWidget, QVBoxLayout, QWidget,
 )
 
 from hueberry.backend import animator, lighting_state
 from hueberry.backend.daemon import DaemonService
 from hueberry.backend.devices import DeviceInfo, describe_device
 from hueberry.ui import worker
+from hueberry.ui.app_header import AppHeader
 from hueberry.ui.daemon_panel import DaemonPanel
 from hueberry.ui.daemon_status_bar import DaemonStatusBar
 from hueberry.ui.device_cards import DeviceGrid
@@ -52,7 +53,7 @@ PRESETS_TIP = "Create, edit and apply lighting presets (Ctrl+P)"
 class MainWindow(QMainWindow):
     """Top-level window: a home grid of device cards and a page per device.
 
-    The daemon status bar (Restart / Re-scan / Daemon…) is always visible; the
+    The header's daemon status (Restart / Re-scan / Daemon…) is always visible; the
     Daemon… button opens the :class:`DaemonPanel` in a non-modal dialog.
     With a ``tray`` whose close-to-tray option is on, closing only hides the
     window; otherwise it emits ``quit_requested`` (when a tray is given).
@@ -77,14 +78,12 @@ class MainWindow(QMainWindow):
         self._build_pages()
         self._build_daemon_dialog()
         self._build_actions()
-        self.macros_button = QPushButton(MACROS_TEXT, self)
-        self.macros_button.setToolTip(MACROS_TIP)
-        self.statusBar().addPermanentWidget(self.macros_button)
-        self.presets_button = QPushButton(PRESETS_TEXT, self)
-        self.presets_button.setToolTip(PRESETS_TIP)
-        self.statusBar().addPermanentWidget(self.presets_button)
+        self.header = AppHeader(self)
+        self.macros_button = self.header.add_nav(MACROS_TEXT, MACROS_TIP)
+        self.presets_button = self.header.add_nav(PRESETS_TEXT, PRESETS_TIP)
         self.daemon_bar = DaemonStatusBar(self._service, self)
-        self.statusBar().addPermanentWidget(self.daemon_bar)
+        self.header.add_trailing(self.daemon_bar)
+        self.setMenuWidget(self.header)
         self._connect_signals()
         self.reload()
 

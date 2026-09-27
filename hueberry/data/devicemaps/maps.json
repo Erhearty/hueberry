@@ -1,0 +1,191 @@
+{
+    "Razer BlackWidow Chroma (British)": {
+        "filename": "blackwidow_m_keys_en_GB.svg",
+        "cols": 22,
+        "rows": 6,
+        "locale": "en_GB",
+        "scancode": "blackwidow_m_keys.json"
+    },
+    "Razer BlackWidow Chroma (US)": {
+        "filename": "blackwidow_m_keys_en_US.svg",
+        "cols": 22,
+        "rows": 6,
+        "locale": "en_US",
+        "scancode": "blackwidow_m_keys.json"
+    },
+    "Razer BlackWidow Elite (US)": {
+        "filename": "blackwidow_elite_en_US.svg",
+        "cols": 22,
+        "rows": 6,
+        "locale": "en_US",
+        "scancode": "blackwidow_elite.json"
+    },
+    "Razer BlackWidow V3 (US)": {
+        "filename": "blackwidow_v3_en_US.svg",
+        "cols": 22,
+        "rows": 6,
+        "locale": "en_US",
+        "scancode": null
+    },
+    "Razer DeathStalker Chroma": {
+        "filename": "deathstalker_chroma_en_GB.svg",
+        "cols": 6,
+        "rows": 1,
+        "locale": "en_GB",
+        "scancode": null
+    },
+    "Razer Mamba Elite": {
+        "filename": "mamba_elite.svg",
+        "cols": 20,
+        "rows": 1,
+        "locale": null,
+        "scancode": null
+    },
+    "Razer Firefly": {
+        "filename": "firefly.svg",
+        "cols": 15,
+        "rows": 1,
+        "locale": null,
+        "scancode": null
+    },
+    "Razer Base Station Chroma": {
+        "filename": "base_station_chroma.svg",
+        "cols": 15,
+        "rows": 1,
+        "locale": null,
+        "scancode": null
+    },
+    "Razer Base Station V2 Chroma": {
+        "filename": "base_station_chroma_v2.svg",
+        "cols": 8,
+        "rows": 1,
+        "locale": null,
+        "scancode": null
+    },
+    "Razer Mamba": {
+        "filename": "mamba.svg",
+        "cols": 16,
+        "rows": 1,
+        "locale": null,
+        "scancode": null
+    },
+    "Razer Blade Stealth 2016 (British)": {
+        "filename": "blade_stealth_2016_en_GB.svg",
+        "cols": 16,
+        "rows": 6,
+        "locale": "en_GB",
+        "scancode": null
+    },
+    "Razer Blade Stealth 2016 (US)": {
+        "filename": "blade_stealth_2016_en_US.svg",
+        "cols": 16,
+        "rows": 6,
+        "locale": "en_US",
+        "scancode": null
+    },
+    "Razer Blade Pro 2019 (Deutsch)": {
+        "filename": "blade_pro_2019_de_DE.svg",
+        "cols": 16,
+        "rows": 6,
+        "locale": "de_DE",
+        "scancode": null
+    },
+    "Razer Blade 2018 (British)": {
+        "filename": "blade_2018_en_GB.svg",
+        "cols": 16,
+        "rows": 6,
+        "locale": "en_GB",
+        "scancode": null
+    },
+    "Razer Blade 2018 (US)": {
+        "filename": "blade_2018_en_US.svg",
+        "cols": 16,
+        "rows": 6,
+        "locale": "en_US",
+        "scancode": null
+    },
+    "Razer Huntsman v2 Analog (British)": {
+        "filename": "huntsman_v2_analog_en_GB.svg",
+        "cols": 22,
+        "rows": 8,
+        "locale": "en_GB",
+        "scancode": "huntsman_v2_analog_en_GB.json"
+    },
+     "Razer Huntsman Elite (Deutsch)": {
+        "filename": "huntsman_elite_de_DE.svg",
+        "cols": 22,
+        "rows": 9,
+        "locale": "de_DE",
+        "scancode": null
+    },
+    "Razer Huntsman Tournament Edition (US)": {
+        "filename": "huntsman_te_en_US.svg",
+        "cols": 18,
+        "rows": 6,
+        "locale": "en_US",
+        "scancode": "huntsman_te_en_US.json"
+    },
+    "Razer Blade 2021 Advanced (US)": {
+        "filename": "blade_advanced_2021_en_US.svg",
+        "cols": 16,
+        "rows": 6,
+        "locale": "en_US",
+        "scancode": null
+    },
+    "Razer Basilisk V3": {
+        "filename": "basilisk_v3.svg",
+        "cols": 11,
+        "rows": 1,
+        "locale": null,
+        "scancode": null
+    },
+    "Razer Cynosa V2 (US)": {
+        "filename": "cynosa_v2_en_US.svg",
+        "cols": 22,
+        "rows": 6,
+        "locale": "en_US",
+        "scancode": "cynosa_v2_en_US.json"
+    },
+    "Razer Cynosa V2 (Nordic)": {
+        "filename": "cynosa_v2_nordic.svg",
+        "cols": 22,
+        "rows": 6,
+        "locale": null,
+        "scancode": "cynosa_v2_nordic.json"
+    },
+    "Razer Ornata V2 (US)": {
+        "filename": "ornata_v2_us.svg",
+        "cols": 22,
+        "rows": 6,
+        "locale": "en_US",
+        "scancode": "ornata_v2_us.json"
+    },
+    "Razer BlackWidow V4 Pro (US)": {
+        "filename": "blackwidow_v4_pro_en_US.svg",
+        "cols": 23,
+        "rows": 8,
+        "locale": "en_US",
+        "scancode": null
+    },
+    "Razer Huntsman Mini (US)": {
+        "filename": "huntsman_mini_en_US.svg",
+        "cols": 15,
+        "rows": 5,
+        "locale": "en_US",
+        "scancode": "huntsman_mini_en_US.json"
+    },
+    "Razer Mouse Dock Pro": {
+        "filename": "mouse_dock_pro.svg",
+        "cols": 8,
+        "rows": 1,
+        "locale": null,
+        "scancode": null
+    },
+    "Razer Blade 16 (2023)": {
+        "filename": "blade_16_2023_en_US.svg",
+        "cols": 16,
+        "rows": 6,
+        "locale": "en_US",
+        "scancode": null
+    }
+}

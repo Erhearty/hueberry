@@ -1,0 +1,7 @@
+{
+    "Test Keyboard (en_US)": {"filename": "kbd_en_US.xml", "rows": 2, "cols": 3, "locale": "en_US"},
+    "Test Keyboard (en_GB)": {"filename": "kbd_en_GB.xml", "rows": 2, "cols": 3, "locale": "en_GB"},
+    "Test Board": {"filename": "kbd_en_GB.xml", "rows": 2, "cols": 3, "locale": "en_GB"},
+    "Test Board (en_US)": {"filename": "kbd_en_US.xml", "rows": 2, "cols": 3, "locale": "en_US"},
+    "Test Broken": {"filename": "kbd_en_US.xml"}
+}

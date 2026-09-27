@@ -4,7 +4,21 @@ Hueberry is a standalone PyQt6 front end for [OpenRazer](https://openrazer.githu
 the open-source driver and daemon for Razer peripherals on Linux. It talks to the
 OpenRazer daemon through the official `openrazer.client` Python library.
 
-Hueberry does **not** depend on Polychromatic or RazerGenie.
+Hueberry does **not** depend on Polychromatic or RazerGenie at runtime.
+
+### Device graphics
+
+The LED preview draws supported devices with the device-map SVGs from
+[Polychromatic](https://github.com/polychromatic/polychromatic) (GPL-3.0, credited
+in [NOTICE](NOTICE)), bundled under `hueberry/data/devicemaps/`. Devices without a
+map fall back to a plain LED grid. To refresh the maps:
+
+```sh
+python scripts/fetch_devicemaps.py
+```
+
+Rendering needs Qt's SVG module; some distros ship it separately
+(e.g. `python3-pyqt6.qtsvg`).
 
 Licensed under the GNU General Public License v3.0 or later (`GPL-3.0-or-later`),
 see [LICENSE](LICENSE).
@@ -63,16 +77,18 @@ hueberry
   - **Info** – name, type, serial, firmware and driver version.
 
   *← Devices* (<kbd>Alt</kbd>+<kbd>Left</kbd> or <kbd>Esc</kbd>) returns to the home screen.
-- **Daemon status bar** (bottom): a coloured dot and the daemon state, plus
+- **Header bar** (top): the Hueberry wordmark, *Macros…* and *Presets…*, and on the
+  right the daemon status – a coloured dot and the daemon state, plus
   - *Restart* – restarts the daemon and reconnects
     (also <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>R</kbd>);
   - *Re-scan* – reconnects and re-reads the device list (also <kbd>F5</kbd>);
   - *Daemon…* – opens a window with daemon/client versions, stop and start, plus
     the "sync effects" and "turn off on screensaver" settings.
 
-  The opened device is kept across re-scans and restarts; the status bar also
-  shows results and errors of every action.
-- The app uses a dark theme with a single accent colour; device icons are
+  The opened device is kept across re-scans and restarts; the status bar at the
+  bottom shows results and errors of every action.
+- The app uses a near-black dark theme with a single aqua accent colour, flat
+  uppercase tabs and titles; device icons are
   original, generic glyphs drawn by the app.
 
 ### Daemon restart
@@ -161,3 +177,15 @@ python -m pytest
 The test suite uses fake `openrazer` and `evdev` packages (see `tests/conftest.py`
 and `tests/fake_evdev.py`), so it runs without the daemon, python-evdev or real
 hardware.
+
+## License
+
+Hueberry is licensed under the GNU General Public License v3.0 or later
+(`GPL-3.0-or-later`), see [LICENSE](LICENSE).
+
+The bundled device graphics under `hueberry/data/devicemaps/` come from
+[Polychromatic](https://github.com/polychromatic/polychromatic) and are also
+`GPL-3.0-or-later`, see [NOTICE](NOTICE).
+
+Per-file licensing follows the [REUSE](https://reuse.software/) layout
+(`REUSE.toml`, `LICENSES/`).

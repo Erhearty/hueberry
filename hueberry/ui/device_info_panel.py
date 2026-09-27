@@ -3,9 +3,10 @@
 """Read-only form showing a device's name, type, serial and versions."""
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QFormLayout, QLabel, QWidget
+from PyQt6.QtWidgets import QFormLayout, QLabel, QVBoxLayout, QWidget
 
 from hueberry.backend.devices import DeviceInfo
+from hueberry.ui import layouts
 
 PLACEHOLDER = "\u2014"
 # (DeviceInfo attribute, label text)
@@ -23,10 +24,16 @@ class DeviceInfoPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        layout = QFormLayout(self)
+        card, card_layout = layouts.section_card("Device", self)
+        layout = QFormLayout()
+        layouts.configure_form(layout)
+        card_layout.addLayout(layout)
+        outer = QVBoxLayout(self)
+        outer.addWidget(card)
+        outer.addStretch(1)
         self.values: dict[str, QLabel] = {}
         for attr, text in FIELDS:
-            value = QLabel(PLACEHOLDER, self)
+            value = QLabel(PLACEHOLDER, card)
             value.setTextInteractionFlags(
                 Qt.TextInteractionFlag.TextSelectableByMouse
                 | Qt.TextInteractionFlag.TextSelectableByKeyboard

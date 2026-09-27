@@ -2,9 +2,13 @@
 # SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Tests for the live LED preview widget (offscreen)."""
 
+from pathlib import Path
+
 import pytest
+from PyQt6.QtCore import QPointF
 
 from hueberry.backend.effects import EFFECT_STATIC, EFFECT_WAVE, Preset, render_run
+from hueberry.backend.device_maps import DeviceMap
 from hueberry.backend.led_layout import DeviceShape, group_layout, single_layout
 from hueberry.ui import led_preview, theme
 from hueberry.ui.led_preview import LedPreview, PreviewDevice
@@ -125,6 +129,89 @@ def test_empty_and_presetless_render_without_error(qtbot):
 
 def test_preview_grab_with_preset(preview):
     assert not preview.grab().isNull()
+
+
+FIXTURE_SVG = Path(__file__).parent / "fixtures" / "devicemaps" / "kbd_en_US.xml"
+FIXTURE_NAME = "Fixture Kbd"
+FIXTURE_SERIAL = "FIX0001"
+FIXTURE_ROWS = 2
+FIXTURE_COLS = 3
+FIXTURE_MAP = DeviceMap(FIXTURE_NAME, FIXTURE_SVG.name, FIXTURE_ROWS, FIXTURE_COLS, "en_US")
+LIT_LED_ID = "x0-y0"
+PIXEL_TOLERANCE = 8
+FIXTURE_LED_FILL = (0x80, 0x80, 0x80)  # the fixture LEDs' own fill
+
+
+def _fixture_match(name, rows, cols, *args, **kwargs):
+    if (name, rows, cols) == (FIXTURE_NAME, FIXTURE_ROWS, FIXTURE_COLS):
+        return FIXTURE_MAP
+    return None
+
+
+def _lit_pixel(widget, pixmap):
+    """The grabbed pixel at the centre of LED x0-y0 of the fixture graphic."""
+    graphic = widget._graphics[FIXTURE_SERIAL]
+    target = graphic.target_rect(widget.device_rects()[FIXTURE_SERIAL])
+    size = graphic.default_size()
+    centre = graphic.renderer.boundsOnElement(LIT_LED_ID).center()
+    point = QPointF(target.left() + centre.x() * target.width() / size.width(),
+                    target.top() + centre.y() * target.height() / size.height())
+    ratio = pixmap.devicePixelRatio()
+    return pixmap.toImage().pixelColor(int(point.x() * ratio), int(point.y() * ratio))
+
+
+def _fixture_devices():
+    return [PreviewDevice(FIXTURE_SERIAL, FIXTURE_NAME, "Keyboard",
+                          DeviceShape.of_matrix(FIXTURE_SERIAL, FIXTURE_ROWS,
+                                                FIXTURE_COLS))] + _devices()
+
+
+def test_without_qtsvg_matched_device_falls_back_to_grid(qtbot, monkeypatch):
+    """With QtSvg missing (DeviceGraphic None) a matched device draws the grid."""
+    monkeypatch.setattr(led_preview, "DeviceGraphic", None)
+    widget = _fixture_widget(qtbot, monkeypatch)
+    assert widget._graphics == {}
+    assert not widget.grab().isNull()
+
+
+def _fixture_widget(qtbot, monkeypatch):
+    """A preview whose fixture device is drawn from the fixture map."""
+    monkeypatch.setattr(led_preview.device_maps, "match", _fixture_match)
+    monkeypatch.setattr(led_preview.device_maps, "svg_bytes",
+                        lambda device_map, *args, **kwargs: FIXTURE_SVG.read_bytes())
+    widget = LedPreview()
+    qtbot.addWidget(widget)
+    widget.resize(*WIDGET_SIZE)
+    widget.set_devices(_fixture_devices())
+    return widget
+
+
+def test_set_devices_reuses_graphics_of_the_same_map(qtbot, monkeypatch):
+    widget = _fixture_widget(qtbot, monkeypatch)
+    first = widget._graphics[FIXTURE_SERIAL]
+    widget.set_devices(_fixture_devices())
+    assert widget._graphics[FIXTURE_SERIAL] is first
+
+
+def test_presetless_graphic_keeps_original_artwork(qtbot, monkeypatch):
+    widget = _fixture_widget(qtbot, monkeypatch)
+    pixel = _lit_pixel(widget, widget.grab())
+    actual = (pixel.red(), pixel.green(), pixel.blue())
+    assert all(abs(a - e) <= PIXEL_TOLERANCE for a, e in zip(actual, FIXTURE_LED_FILL))
+
+
+def test_matched_device_is_drawn_from_its_graphic(qtbot, monkeypatch):
+    widget = _fixture_widget(qtbot, monkeypatch)
+    widget.set_preset(Preset(key="red", label="Red", effect=EFFECT_STATIC, palette=(RED,)))
+    assert FIXTURE_SERIAL in widget._graphics
+    assert KBD_SERIAL not in widget._graphics  # "Keyboard" 6x22 has no map
+    pixmap = widget.grab()
+    assert not pixmap.isNull()
+    pixel = _lit_pixel(widget, pixmap)
+    expected = widget.colour_at(FIXTURE_SERIAL, 0, 0)
+    assert expected == RED
+    actual = (pixel.red(), pixel.green(), pixel.blue())
+    assert all(abs(a - e) <= PIXEL_TOLERANCE for a, e in zip(actual, expected))
 
 
 def test_text_colours_meet_wcag_aa():

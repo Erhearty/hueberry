@@ -137,6 +137,7 @@ def test_banner_hidden_when_all_ok(qtbot):
     page = _page(qtbot, FakeEngine())
     assert page.banner_label.isHidden()
     assert page.start_button.isHidden()
+    assert page.engine_card.isHidden()
 
 
 @pytest.mark.parametrize(("engine", "config_error", "expected", "offer_start"), [
@@ -163,6 +164,7 @@ def test_banner_shows_engine_config_error(qtbot):
     engine.config_error = "macros.json was invalid"
     page = _page(qtbot, engine)
     assert not page.banner_label.isHidden()
+    assert not page.engine_card.isHidden()
     assert "was invalid" in page.banner_label.text()
 
 

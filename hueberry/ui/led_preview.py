@@ -5,8 +5,10 @@
 Colours come from :func:`hueberry.backend.effects.render_run` on the same
 layouts the animator uses (:func:`group_layout` for a synced group,
 :func:`single_layout` per device otherwise), so the preview matches the
-hardware. Outlines are plain rounded rectangles sized from a table of nominal
-device sizes; everything is drawn here, no vendor artwork is used. A timer
+hardware. Outlines are sized from a table of nominal device sizes. A matrix
+device with a Polychromatic device map (GPL-3.0, see NOTICE) is drawn from
+that SVG (:class:`hueberry.ui.device_graphic.DeviceGraphic`); every other
+device is drawn here as a plain rounded rectangle with its LEDs. A timer
 advances the phase at ``PREVIEW_FPS`` while the widget is shown, never while
 it is hidden.
 """
@@ -19,11 +21,17 @@ from PyQt6.QtCore import QRectF, Qt, QTimer
 from PyQt6.QtGui import QColor, QHideEvent, QPainter, QPaintEvent, QPen, QShowEvent
 from PyQt6.QtWidgets import QWidget
 
+from hueberry.backend import device_maps
 from hueberry.backend.effects import (
     EFFECT_LABELS, RGB, Frame, Preset, advance_phase, is_animated, render_run,
 )
 from hueberry.backend.led_layout import DeviceShape, group_layout, single_layout
 from hueberry.ui import theme
+
+try:  # QtSvg is a separate package on some distros; without it, draw the grid
+    from hueberry.ui.device_graphic import DeviceGraphic
+except ImportError:  # pragma: no cover - depends on the installed Qt modules
+    DeviceGraphic = None
 
 __all__ = ["LedPreview", "PreviewDevice", "nominal_size", "MODE_SINGLE", "MODE_GROUP"]
 
@@ -95,6 +103,8 @@ class LedPreview(QWidget):
         self._preset: Preset | None = None
         self._phase = 0.0
         self._frames: dict[str, Frame] = {}
+        self._graphics: dict[str, "DeviceGraphic"] = {}  # device-map artwork by serial
+        self._graphic_files: dict[str, str] = {}  # device-map filename of each graphic
         self._shown = False  # between showEvent and hideEvent
         self._timer = QTimer(self)
         self._timer.setInterval(FRAME_INTERVAL_MS)
@@ -108,6 +118,20 @@ class LedPreview(QWidget):
     def set_devices(self, devices: Iterable[PreviewDevice]) -> None:
         """Show ``devices``, left to right in the given (placement) order."""
         self._devices = tuple(devices)
+        old_graphics, old_files = self._graphics, self._graphic_files
+        self._graphics, self._graphic_files = {}, {}
+        for device in self._devices:
+            device_map = self._device_map(device)
+            if device_map is None:
+                continue
+            graphic = None
+            if old_files.get(device.serial) == device_map.filename:
+                graphic = old_graphics.get(device.serial)  # same map: no re-parse
+            if graphic is None:
+                graphic = self._load_graphic(device, device_map)
+            if graphic is not None:
+                self._graphics[device.serial] = graphic
+                self._graphic_files[device.serial] = device_map.filename
         self._changed()
 
     def set_mode(self, mode: str) -> None:
@@ -156,6 +180,29 @@ class LedPreview(QWidget):
         return self._geometry()[0]
 
     # -- state ---------------------------------------------------------------
+
+    def _device_map(self, device: PreviewDevice) -> device_maps.DeviceMap | None:
+        """The device map of a matrix device, or None (failures are logged)."""
+        shape = device.shape
+        if not shape.matrix:
+            return None
+        try:
+            return device_maps.match(device.name, shape.rows, shape.cols)
+        except (ValueError, OSError) as exc:
+            logger.warning("No device map for %s: %s", device.name, exc)
+            return None
+
+    def _load_graphic(self, device: PreviewDevice,
+                      device_map: device_maps.DeviceMap) -> "DeviceGraphic | None":
+        """The graphic of ``device_map``, or None (failures are logged)."""
+        if DeviceGraphic is None:
+            return None
+        try:
+            data = device_maps.svg_bytes(device_map)
+            return DeviceGraphic(data) if data is not None else None
+        except (ValueError, OSError) as exc:
+            logger.warning("No device graphic for %s: %s", device.name, exc)
+            return None
 
     def _changed(self) -> None:
         self._render()
@@ -252,6 +299,12 @@ class LedPreview(QWidget):
 
     def _paint_device(self, painter: QPainter, device: PreviewDevice, rect: QRectF,
                       gap_px: float) -> None:
+        graphic = self._graphics.get(device.serial)
+        if graphic is not None:
+            serial = device.serial
+            graphic.paint(painter, rect, lambda row, col: self._graphic_colour(serial, row, col))
+            self._paint_name(painter, device.name, rect, gap_px)
+            return
         pen = QPen(QColor(OUTLINE_PEN))
         pen.setWidthF(OUTLINE_PEN_PX)
         painter.setPen(pen)
@@ -293,6 +346,11 @@ class LedPreview(QWidget):
                                              int(slot.width()))
         painter.setPen(QColor(NAME_COLOUR))
         painter.drawText(slot, Qt.AlignmentFlag.AlignCenter, text)
+
+    def _graphic_colour(self, serial: str, row: int, col: int) -> QColor | None:
+        """An LED's colour for a device graphic; None keeps the artwork's own styling."""
+        rgb = self.colour_at(serial, row, col)
+        return QColor(*rgb) if rgb is not None else None
 
     def _led_colour(self, serial: str, row: int, col: int) -> QColor:
         rgb = self.colour_at(serial, row, col)

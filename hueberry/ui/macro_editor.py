@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 
 from hueberry.macros import keycodes, model
 from hueberry.macros.model import DelayStep, KeyStep, Macro
-from hueberry.ui import theme
+from hueberry.ui import layouts, theme
 from hueberry.ui.macro_recorder import RecorderDialog
 
 logger = logging.getLogger(__name__)
@@ -88,6 +88,8 @@ class StepDialog(QDialog):
 
     def _build_layout(self) -> None:
         form = QFormLayout()
+        layouts.configure_form(form)
+        theme.set_role(self.buttons.button(QDialogButtonBox.StandardButton.Ok), "primary")
         form.addRow("&Type:", self.kind_combo)
         form.addRow("&Key:", self.code_combo)
         form.addRow("&Action:", self.action_combo)
@@ -151,6 +153,7 @@ class MacroEditorDialog(QDialog):
         self.validation_label.setAccessibleName("Validation")
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self)
+        theme.set_role(self.buttons.button(QDialogButtonBox.StandardButton.Ok), "primary")
 
     def _build_step_buttons(self) -> None:
         labels = {"add_key": "Add &key\u2026", "add_delay": "Add &delay\u2026",
@@ -169,6 +172,7 @@ class MacroEditorDialog(QDialog):
         trigger_row.addWidget(self.trigger_combo, 1)
         trigger_row.addWidget(self.capture_button)
         form = QFormLayout()
+        layouts.configure_form(form)
         form.addRow("&Name:", self.name_edit)
         form.addRow("&Trigger:", trigger_row)
         form.addRow("", self.enabled_check)
@@ -306,6 +310,5 @@ class MacroEditorDialog(QDialog):
     def _validate(self) -> None:
         found = self.problems()
         self.validation_label.setText("\n".join(found) if found else VALID_TEXT)
-        colour = theme.ERROR if found else theme.TEXT_MUTED
-        self.validation_label.setStyleSheet(f"color: {colour};")
+        theme.set_role(self.validation_label, "error" if found else "muted")
         self.buttons.button(QDialogButtonBox.StandardButton.Ok).setEnabled(not found)

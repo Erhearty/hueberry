@@ -5,7 +5,9 @@
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
-TITLE_TEXT = "<b>No devices found</b>"
+from hueberry.ui import theme
+
+TITLE_TEXT = "No devices found"
 HINT_TEXT = (
     "Make sure the OpenRazer daemon and python3-openrazer are installed, "
     "that your user is in the plugdev group, and that the daemon is running."
@@ -29,6 +31,8 @@ class EmptyStatePanel(QWidget):
         self._busy = False
         self._can_start = True
         self.title_label = QLabel(TITLE_TEXT, self)
+        theme.set_role(self.title_label, "title")
+        theme.uppercase(self.title_label)
         self.message_label = QLabel("", self)
         self.message_label.setWordWrap(True)
         self.message_label.setTextInteractionFlags(
@@ -40,6 +44,7 @@ class EmptyStatePanel(QWidget):
         self.hint_label.setWordWrap(True)
         self.start_button = QPushButton(START_TEXT, self)
         self.retry_button = QPushButton(RETRY_TEXT, self)
+        theme.set_role(self.start_button, "primary")
         self.start_button.clicked.connect(self.start_requested)
         self.retry_button.clicked.connect(self.retry_requested)
         self._build_layout()

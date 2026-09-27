@@ -18,7 +18,8 @@ from typing import Any, Callable
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QComboBox, QFormLayout, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout, QWidget,
+    QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel, QPushButton, QSlider, QVBoxLayout,
+    QWidget,
 )
 
 from hueberry.backend import animator, lighting_state, preset_store, presets
@@ -29,8 +30,9 @@ from hueberry.backend.lighting import (
     get_brightness, set_brightness, supported_effects, supports_brightness,
 )
 from hueberry.backend.effects import Preset
-from hueberry.ui import worker
+from hueberry.ui import layouts, theme, worker
 from hueberry.ui.colour_button import ColourButton
+from hueberry.ui.lighting_jobs import stop_preset_then_apply as _stop_preset_then_apply
 
 logger = logging.getLogger(__name__)
 
@@ -61,27 +63,20 @@ def _choice_combo(choices: tuple[tuple[str, int], ...], parent: QWidget) -> QCom
     return combo
 
 
-def _stop_preset_then_apply(dev: Any, zone: ZoneInfo, effect_key: str,
-                            params: dict[str, Any]) -> Any:
-    """Worker job: stop and forget a preset animation on ``dev``, then apply an effect.
-
-    Stopping may wait for one animation frame and restores the matrix over
-    D-Bus, so it runs here rather than on the UI thread. A failed stop is
-    logged and never prevents the apply.
-    """
-    serial = animator.device_serial(dev)
-    if serial is not None:
-        try:
-            lighting_state.shared_lighting_state().stop_device(serial)
-        except Exception:  # the new effect is still applied
-            logger.exception("Could not stop the running preset on %s", serial)
-    return apply_effect(dev, zone, effect_key, params)
+def _card_form(title: str, parent: QWidget) -> tuple[QFrame, QFormLayout]:
+    """Return a section card titled ``title`` holding a configured, empty form."""
+    card, layout = layouts.section_card(title, parent)
+    form = QFormLayout()
+    layouts.configure_form(form)
+    layout.addLayout(form)
+    return card, form
 
 
 class LightingPanel(QWidget):
     """Choose a zone and effect for a device and apply it; ``status`` reports results."""
 
     status = pyqtSignal(str)
+    preview_changed = pyqtSignal()  # the selection shown by the LED preview changed
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -117,6 +112,7 @@ class LightingPanel(QWidget):
         self.brightness_slider.setPageStep(BRIGHTNESS_PAGE_STEP)
         self.brightness_slider.setAccessibleName("Brightness")
         self.apply_button = QPushButton("&Apply", self)
+        theme.set_role(self.apply_button, "primary")
         self._param_widgets: dict[str, QWidget] = {
             PARAM_COLOUR1: self.colour1_button,
             PARAM_COLOUR2: self.colour2_button,
@@ -136,17 +132,21 @@ class LightingPanel(QWidget):
         )
 
     def _build_layout(self) -> None:
-        form = QFormLayout()
+        effect_card, effect_form = _card_form("Effect", self)
+        brightness_card, brightness_form = _card_form("Brightness", self)
         for key, text, widget in self._rows():
             label = QLabel(text, self)
             label.setBuddy(widget)
+            form = brightness_form if key == ROW_BRIGHTNESS else effect_form
             form.addRow(label, widget)
             self._labels[key] = label
         buttons = QHBoxLayout()
+        buttons.setSpacing(theme.SPACING_S)
         buttons.addStretch(1)
         buttons.addWidget(self.apply_button)
         outer = QVBoxLayout(self)
-        outer.addLayout(form)
+        outer.addWidget(effect_card)
+        outer.addWidget(brightness_card)
         outer.addLayout(buttons)
         outer.addStretch(1)
 
@@ -157,6 +157,10 @@ class LightingPanel(QWidget):
         self.brightness_slider.valueChanged.connect(self._on_brightness_changed)
         self.brightness_slider.sliderReleased.connect(self._apply_brightness)
         self.apply_button.clicked.connect(self._on_apply)
+        for signal in (self.colour1_button.colour_changed, self.colour2_button.colour_changed,
+                       self.direction_combo.currentIndexChanged,
+                       self.brightness_slider.valueChanged):
+            signal.connect(lambda *_args: self.preview_changed.emit())
 
     def _set_tab_order(self) -> None:
         chain = [widget for _key, _text, widget in self._rows()] + [self.apply_button]
@@ -268,6 +272,7 @@ class LightingPanel(QWidget):
             self._labels[name].setVisible(visible)
         self.effect_combo.setEnabled(self.effect_combo.count() > 0)
         self.apply_button.setEnabled(self._has_selection() and not self._writing)
+        self.preview_changed.emit()
 
     def _update_brightness(self, zone: ZoneInfo | None) -> None:
         supported = zone is not None and supports_brightness(self._dev, zone)
@@ -326,7 +331,9 @@ class LightingPanel(QWidget):
             self._start_preset(dev, preset)
             return
         params = self._collect_params()
-        self._submit(partial(_stop_preset_then_apply, dev, zone, effect.key, params),
+        # apply_effect is looked up here, on this module, so tests can monkeypatch it
+        self._submit(partial(_stop_preset_then_apply, dev, zone, effect.key, params,
+                             apply_effect),
                      partial(self._on_apply_done, effect.label))
 
     def _start_preset(self, dev: Any, preset: Preset) -> None:
