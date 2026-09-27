@@ -308,7 +308,7 @@ def test_start_daemon_disabled_when_connected_without_devices(window, fake_manag
     assert win.stack.currentWidget() is win.empty_page
     assert not win.empty_page.start_button.isEnabled()
     assert win.empty_page.retry_button.isEnabled()
-    assert win.empty_page.title_label.text() == "<b>No devices found</b>"
+    assert win.empty_page.title_label.text() == "No devices found"
 
 
 def test_start_daemon_enabled_when_not_connected(window, fake_manager_factory):

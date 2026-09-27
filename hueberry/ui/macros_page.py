@@ -14,13 +14,13 @@ from typing import Any
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
-    QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QWidget,
 )
 
 from hueberry.backend import macro_engine as engine_states
 from hueberry.macros import keycodes, store
 from hueberry.macros.model import DeviceMacros, Macro, MacroConfig, ModelError
-from hueberry.ui import theme, worker
+from hueberry.ui import layouts, theme, worker
 from hueberry.ui.macro_editor import MacroEditorDialog
 from hueberry.ui.macros_banner import BANNER_STARTING, banner_text, state_label
 
@@ -28,7 +28,7 @@ __all__ = ["MacrosPage", "banner_text", "state_label"]
 
 logger = logging.getLogger(__name__)
 
-TITLE_TEXT = "<b>Macros</b>"
+TITLE_TEXT = "Macros"
 BACK_TEXT = "\u2190 Devices"
 DEFAULT_TRIGGER = "BTN_SIDE"
 NEW_MACRO_NAME = "New macro"
@@ -81,7 +81,7 @@ class MacrosPage(QWidget):
         self.banner_label = QLabel(self)
         self.banner_label.setWordWrap(True)
         self.banner_label.setAccessibleName("Macro engine status")
-        self.banner_label.setStyleSheet(f"color: {theme.ERROR};")
+        theme.set_role(self.banner_label, "error")
         self.start_button = QPushButton(START_ENGINE_TEXT, self)
         self.device_list = QListWidget(self)
         self.device_list.setAccessibleName("Input devices")
@@ -91,30 +91,45 @@ class MacrosPage(QWidget):
         self.edit_button = QPushButton("&Edit\u2026", self)
         self.delete_button = QPushButton("&Delete", self)
         self.save_button = QPushButton("&Save", self)
+        theme.set_role(self.save_button, "primary")
         self.refresh_button = QPushButton("Re&load", self)
         self.refresh_button.setToolTip("Re-read device states from the macro engine")
 
     def _build_layout(self) -> None:
-        header = QHBoxLayout()
-        for widget in (self.back_button, self.title_label):
-            header.addWidget(widget)
-        header.addStretch(1)
-        header.addWidget(self.refresh_button)
+        header = layouts.page_header(self.back_button, self.title_label, self.refresh_button)
+        devices_card, devices_layout = layouts.section_card("Devices", self)
+        devices_layout.addWidget(self.device_list, 1)
+        body = QHBoxLayout()
+        body.setSpacing(theme.SPACING_M)
+        body.addWidget(devices_card, 1)
+        body.addWidget(self._macros_card(), 2)
+        outer = layouts.page_layout(self)
+        outer.addLayout(header)
+        self.engine_card = self._engine_card()
+        outer.addWidget(self.engine_card)
+        outer.addLayout(body, 1)
+
+    def _engine_card(self) -> QFrame:
+        """Return the Macro engine card: the status banner and the Start button."""
+        card, layout = layouts.section_card("Macro engine", self)
         banner = QHBoxLayout()
         banner.addWidget(self.banner_label, 1)
         banner.addWidget(self.start_button)
-        buttons = QVBoxLayout()
-        for button in (self.add_button, self.edit_button, self.delete_button, self.save_button):
+        layout.addLayout(banner)
+        return card
+
+    def _macros_card(self) -> QFrame:
+        """Return the Macros card: the macro list, then Add/Edit/Delete and Save."""
+        card, layout = layouts.section_card("Macros", self)
+        buttons = QHBoxLayout()
+        buttons.setSpacing(theme.SPACING_S)
+        for button in (self.add_button, self.edit_button, self.delete_button):
             buttons.addWidget(button)
         buttons.addStretch(1)
-        lists = QHBoxLayout()
-        lists.addWidget(self.device_list, 1)
-        lists.addWidget(self.macro_list, 1)
-        lists.addLayout(buttons)
-        outer = QVBoxLayout(self)
-        outer.addLayout(header)
-        outer.addLayout(banner)
-        outer.addLayout(lists, 1)
+        buttons.addWidget(self.save_button)
+        layout.addWidget(self.macro_list, 1)
+        layout.addLayout(buttons)
+        return card
 
     def _connect_signals(self) -> None:
         self.back_button.clicked.connect(self.back_requested)
@@ -302,6 +317,7 @@ class MacrosPage(QWidget):
         self.banner_label.setVisible(banner is not None)
         self.banner_label.setText(banner[0] if banner else "")
         self.start_button.setVisible(bool(banner and banner[1]))
+        self.engine_card.setVisible(banner is not None)  # no empty card when all is well
         self.engine_summary.emit(self._summary())
 
     def _summary(self) -> str:

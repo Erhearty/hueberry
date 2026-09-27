@@ -18,6 +18,7 @@ from hueberry.backend.effects import (
     DIRECTION_FORWARD, DIRECTION_REVERSE, EFFECT_LABELS, MAX_LABEL_LENGTH, MAX_PALETTE,
     MAX_SPEED, MIN_PALETTE, MIN_SPEED, RGB, Preset,
 )
+from hueberry.ui import layouts, theme
 from hueberry.ui.colour_button import ColourButton
 
 __all__ = ["PresetEditor"]
@@ -89,11 +90,13 @@ class PresetEditor(QWidget):
 
     def _build_layout(self) -> None:
         palette = QHBoxLayout()
+        palette.setSpacing(theme.SPACING_S)
         palette.addLayout(self.palette_row)
         palette.addWidget(self.add_colour_button)
         palette.addWidget(self.remove_colour_button)
         palette.addStretch(1)
         form = QFormLayout(self)
+        layouts.configure_form(form)
         form.addRow(self._buddy("&Name:", self.label_edit), self.label_edit)
         form.addRow(self._buddy("&Colours:", self.add_colour_button), palette)
         form.addRow(self._buddy("E&ffect:", self.effect_combo), self.effect_combo)

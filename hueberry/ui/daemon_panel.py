@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 )
 
 from hueberry.backend.daemon import DaemonService, DaemonStatus
-from hueberry.ui import worker
+from hueberry.ui import layouts, theme, worker
 
 logger = logging.getLogger(__name__)
 
@@ -68,10 +68,12 @@ class DaemonPanel(QWidget):
 
     def _build_layout(self) -> None:
         form = QFormLayout()
+        layouts.configure_form(form)
         form.addRow("Daemon:", self.running_value)
         form.addRow("Daemon version:", self.daemon_version_value)
         form.addRow("Client version:", self.client_version_value)
         buttons = QHBoxLayout()
+        buttons.setSpacing(theme.SPACING_S)
         for button in (self.repoll_button, self.restart_button, self.stop_button,
                        self.start_button):
             buttons.addWidget(button)

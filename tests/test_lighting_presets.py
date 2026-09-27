@@ -9,7 +9,7 @@ import pytest
 from hueberry.backend import animator, lighting_state, preset_store
 from hueberry.backend.effects import EFFECT_BREATHE, EFFECT_WAVE, Preset
 from hueberry.ui import worker
-from hueberry.ui import lighting_panel
+from hueberry.ui import lighting_jobs, lighting_panel
 from hueberry.ui.lighting_panel import PRESET_DATA_PREFIX, PRESET_ERHEART, LightingPanel
 
 MATRIX_CAPS = ("lighting", "lighting_static", "lighting_breath_dual", "lighting_led_matrix")
@@ -129,7 +129,7 @@ def test_failed_stop_logs_serial_not_erheart(qtbot, make_device, passive_animato
     dev = make_device(serial=SERIAL, capabilities=MATRIX_CAPS)
     panel = _make_panel(qtbot, dev)
     _select(panel, "static")
-    with caplog.at_level(logging.ERROR, logger=lighting_panel.__name__):
+    with caplog.at_level(logging.ERROR, logger=lighting_jobs.__name__):
         panel.apply_button.click()
     assert f"Could not stop the running preset on {SERIAL}" in caplog.text
     assert "Erheart" not in caplog.text

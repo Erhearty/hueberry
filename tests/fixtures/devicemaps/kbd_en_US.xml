@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Hand-made 2x3 test map (SVG) for Hueberry's tests (not Polychromatic art). -->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     width="60" height="40" viewBox="0 0 60 40">
+  <rect id="body" x="0" y="0" width="60" height="40" style="fill:#202020;stroke:#101010"/>
+  <rect class="LED" id="x0-y0" x="2" y="2" width="16" height="16" style="fill:#808080;stroke:#000000"/>
+  <rect class="LED" id="x1-y0" x="22" y="2" width="16" height="16" style="fill:#808080;stroke:#000000"/>
+  <rect class="LED" id="x2-y0" x="42" y="2" width="16" height="16" style="fill:#808080;stroke:#000000"/>
+  <rect class="LED" id="x0-y1" x="2" y="22" width="16" height="16" style="fill:#808080;stroke:#000000"/>
+  <rect class="LED" id="x1-y1" x="22" y="22" width="16" height="16" style="fill:#808080;stroke:#000000"/>
+  <g class="LED" id="x2-y1">
+    <rect id="key-x2-y1" x="42" y="22" width="16" height="16" style="fill:#808080;stroke:#000000"/>
+    <rect id="fixed" nochange="true" x="44" y="24" width="4" height="4" style="fill:#00ff00"/>
+    <text id="label" nostroke="true" x="50" y="34" font-size="6" style="fill:#ffffff;stroke:#000000">US</text>
+  </g>
+</svg>

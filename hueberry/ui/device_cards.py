@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
 )
 
 from hueberry.backend.devices import DeviceInfo
+from hueberry.ui import theme
 from hueberry.ui.device_icons import icon_for_type
 
 CARD_OBJECT_NAME = "deviceCard"
@@ -19,7 +20,7 @@ CARD_WIDTH = 180
 CARD_HEIGHT = 150
 CARD_TEXT_WIDTH = 156  # CARD_WIDTH minus the card's padding and border
 CARD_ICON_SIZE = 64
-GRID_SPACING = 12
+GRID_SPACING = theme.SPACING_M
 MIN_COLUMNS = 1
 MAX_COLUMNS = 6
 FRAME_SIDES = 2

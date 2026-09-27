@@ -1,0 +1,15 @@
+Hueberry
+Copyright (C) 2025 Hueberry contributors
+Licensed under the GNU General Public License v3.0 or later.
+
+Third-party material
+--------------------
+
+hueberry/data/devicemaps/ (maps.json and *.svg device graphics)
+  From Polychromatic - https://github.com/polychromatic/polychromatic
+  Path: data/devicemaps/ at commit f2def5837dec76bf3d5585894ec5b925994ddb0c
+  Copyright (C) 2015-2024 Luke Horwell <code@horwell.me> and contributors
+  License: GNU General Public License v3.0 or later (GPL-3.0-or-later)
+  The SVGs name fonts (e.g. Play) but embed none; no font files are distributed.
+  blackwidow_v4_pro_en_US.svg is also used, unmodified, for the Razer BlackWidow V4.
+  Refresh with: python scripts/fetch_devicemaps.py

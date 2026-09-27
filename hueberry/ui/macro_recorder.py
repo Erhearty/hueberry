@@ -16,7 +16,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QDialogButtonBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from hueberry.macros import keycodes
-from hueberry.ui import worker
+from hueberry.ui import theme, worker
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +65,7 @@ class RecorderDialog(QDialog):
         self.status_label.setAccessibleName("Recording status")
         self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByKeyboard)
         self.start_button = QPushButton(START_TEXT, self)
+        theme.set_role(self.start_button, "primary")
         self.stop_button = QPushButton(STOP_TEXT, self)
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel, self)
         self._build_layout()

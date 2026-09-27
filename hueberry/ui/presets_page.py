@@ -16,20 +16,21 @@ from typing import Any, Callable
 
 from PyQt6.QtCore import QSignalBlocker, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
-    QButtonGroup, QGroupBox, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton,
-    QRadioButton, QVBoxLayout, QWidget,
+    QButtonGroup, QLabel, QListWidget, QListWidgetItem, QPushButton, QRadioButton, QWidget,
 )
 
 from hueberry.backend import animator, preset_store
 from hueberry.backend.effects import EFFECT_WAVE, MAX_LABEL_LENGTH, Preset, PresetError
-from hueberry.ui import presets_actions, presets_preview, theme, worker
+from hueberry.ui import (
+    layouts, presets_actions, presets_layout, presets_preview, theme, worker,
+)
 from hueberry.ui.preset_editor import PresetEditor
 
 __all__ = ["PresetsPage"]
 
 logger = logging.getLogger(__name__)
 
-TITLE_TEXT = "<b>Lighting presets</b>"
+TITLE_TEXT = "Lighting presets"
 BACK_TEXT = "\u2190 Back"
 BUILTIN_SUFFIX = " (built-in)"
 UNSAVED_SUFFIX = " *"
@@ -77,7 +78,7 @@ class PresetsPage(QWidget):
         self.title_label = QLabel(TITLE_TEXT, self)
         self.error_label = QLabel(self)
         self.error_label.setWordWrap(True)
-        self.error_label.setStyleSheet(f"color: {theme.ERROR};")
+        theme.set_role(self.error_label, "error")
         self.preset_list = QListWidget(self)
         self.preset_list.setAccessibleName("Presets")
         self.new_button = QPushButton("Ne&w", self)
@@ -94,49 +95,17 @@ class PresetsPage(QWidget):
         for radio in (self.single_radio, self.group_radio):
             self.mode_group.addButton(radio)
         self.apply_button = QPushButton("&Apply", self)
+        theme.set_role(self.apply_button, "primary")
         self.stop_button = QPushButton("S&top", self)
         self.preview = presets_preview.PresetsPreview(self)  # live LED preview
 
     def _build_layout(self) -> None:
-        header = QHBoxLayout()
-        header.addWidget(self.back_button)
-        header.addWidget(self.title_label)
-        header.addStretch(1)
-        buttons = QVBoxLayout()
-        for button in (self.new_button, self.duplicate_button, self.delete_button,
-                       self.save_button):
-            buttons.addWidget(button)
-        buttons.addStretch(1)
-        library = QVBoxLayout()
-        list_label = QLabel("Presets:", self)
-        list_label.setBuddy(self.preset_list)
-        library.addWidget(list_label)
-        library.addWidget(self.preset_list, 1)
-        body = QHBoxLayout()
-        body.addLayout(library, 1)
-        body.addLayout(buttons)
-        body.addLayout(self.preview.editor_column(self.editor), 2)
-        outer = QVBoxLayout(self)
+        header = layouts.page_header(self.back_button, self.title_label)
+        outer = layouts.page_layout(self)
         outer.addLayout(header)
         outer.addWidget(self.error_label)
-        outer.addLayout(body, 1)
-        outer.addWidget(self._apply_box())
-
-    def _apply_box(self) -> QGroupBox:
-        box = QGroupBox("Apply to devices", self)
-        devices_label = QLabel("Apply t&o:", box)
-        devices_label.setBuddy(self.device_list)
-        controls = QVBoxLayout()
-        for widget in (self.single_radio, self.group_radio, self.apply_button, self.stop_button):
-            controls.addWidget(widget)
-        controls.addStretch(1)
-        row = QHBoxLayout()
-        row.addWidget(self.device_list, 1)
-        row.addLayout(controls)
-        layout = QVBoxLayout(box)
-        layout.addWidget(devices_label)
-        layout.addLayout(row)
-        return box
+        outer.addLayout(presets_layout.build_body(self), 1)
+        outer.addWidget(presets_layout.apply_card(self))
 
     def _connect_signals(self) -> None:
         self.back_button.clicked.connect(self.back_requested)
@@ -153,7 +122,7 @@ class PresetsPage(QWidget):
         chain = [self.back_button, self.preset_list, self.new_button, self.duplicate_button,
                  self.delete_button, self.save_button, self.editor.first_widget()]
         tail = [self.editor.last_widget(), self.device_list, self.single_radio,
-                self.group_radio, self.apply_button, self.stop_button]
+                self.group_radio, self.stop_button, self.apply_button]
         for links in (chain, tail):
             for first, second in zip(links, links[1:]):
                 QWidget.setTabOrder(first, second)
