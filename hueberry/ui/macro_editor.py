@@ -14,8 +14,9 @@ from PyQt6.QtWidgets import (
     QLabel, QLineEdit, QListWidget, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
+from hueberry import gui_link
 from hueberry.macros import keycodes, model
-from hueberry.macros.model import DelayStep, KeyStep, Macro
+from hueberry.macros.model import AppActionStep, DelayStep, KeyStep, Macro
 from hueberry.ui import layouts, theme
 from hueberry.ui.macro_recorder import RecorderDialog
 from hueberry.ui.macro_repeat import RepeatModeGroup
@@ -26,7 +27,10 @@ EDITOR_TITLE = "Edit macro"
 STEP_TITLE = "Macro step"
 KIND_KEY = "key"
 KIND_DELAY = "delay"
-KIND_LABELS = ((KIND_KEY, "Key or button"), (KIND_DELAY, "Delay"))
+KIND_APP = "app"
+KIND_LABELS = ((KIND_KEY, "Key or button"), (KIND_DELAY, "Delay"), (KIND_APP, "App action"))
+STEP_KINDS = {KeyStep: KIND_KEY, DelayStep: KIND_DELAY, AppActionStep: KIND_APP}
+APP_STEP_PREFIX = "App: "
 ACTION_LABELS = ((model.ACTION_TAP, "Tap"), (model.ACTION_PRESS, "Press"),
                  (model.ACTION_RELEASE, "Release"))
 DEFAULT_KEY = "KEY_A"
@@ -39,7 +43,9 @@ VALID_TEXT = "Ready to save."
 
 
 def describe_step(step: Any) -> str:
-    """One-line label, e.g. ``Tap A`` or ``Wait 50 ms``."""
+    """One-line label, e.g. ``Tap A``, ``Wait 50 ms`` or ``App: Toggle system monitor``."""
+    if isinstance(step, AppActionStep):
+        return APP_STEP_PREFIX + gui_link.APP_ACTION_LABELS.get(step.action, step.action)
     if isinstance(step, DelayStep):
         return f"Wait {step.ms}{DELAY_SUFFIX}"
     action = dict(ACTION_LABELS).get(step.action, step.action)
@@ -60,7 +66,7 @@ def key_combo(parent: QWidget, current: str, accessible_name: str) -> QComboBox:
 
 
 class StepDialog(QDialog):
-    """Edits one key or delay step; the delay is bounded to MIN..MAX_DELAY_MS."""
+    """Edits one key, delay or app-action step; the delay is bounded to MIN..MAX_DELAY_MS."""
 
     def __init__(self, step: Any = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -69,23 +75,37 @@ class StepDialog(QDialog):
         self.kind_combo = QComboBox(self)
         for kind, label in KIND_LABELS:
             self.kind_combo.addItem(label, kind)
+        self._build_fields(step)
+        kind = STEP_KINDS.get(type(step), KIND_KEY)
+        self.kind_combo.setCurrentIndex(max(0, self.kind_combo.findData(kind)))
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self)
+        self._build_layout()
+        self._set_tab_order()
+        self.kind_combo.currentIndexChanged.connect(self._update_fields)
+        self._update_fields()
+
+    def _build_fields(self, step: Any) -> None:
+        """Create the per-kind editors, prefilled from ``step`` where it matches."""
         is_key = isinstance(step, KeyStep)
         self.code_combo = key_combo(self, step.code if is_key else DEFAULT_KEY, "Key or button")
         self.action_combo = QComboBox(self)
         for action, label in ACTION_LABELS:
             self.action_combo.addItem(label, action)
+        if is_key:
+            self.action_combo.setCurrentIndex(max(0, self.action_combo.findData(step.action)))
         self.delay_spin = QSpinBox(self)
         self.delay_spin.setRange(model.MIN_DELAY_MS, model.MAX_DELAY_MS)
         self.delay_spin.setSuffix(DELAY_SUFFIX)
-        self.delay_spin.setValue(step.ms if not is_key else DEFAULT_DELAY_MS)
-        if is_key:
-            self.action_combo.setCurrentIndex(max(0, self.action_combo.findData(step.action)))
-        self.kind_combo.setCurrentIndex(0 if is_key else 1)
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self)
-        self._build_layout()
-        self.kind_combo.currentIndexChanged.connect(self._update_fields)
-        self._update_fields()
+        self.delay_spin.setValue(step.ms if isinstance(step, DelayStep) else DEFAULT_DELAY_MS)
+        self.app_combo = QComboBox(self)
+        self.app_combo.setAccessibleName("App action")
+        for action, label in gui_link.APP_ACTION_LABELS.items():
+            self.app_combo.addItem(label, action)
+        if isinstance(step, AppActionStep):
+            if self.app_combo.findData(step.action) < 0:
+                self.app_combo.addItem(step.action, step.action)
+            self.app_combo.setCurrentIndex(self.app_combo.findData(step.action))
 
     def _build_layout(self) -> None:
         form = QFormLayout()
@@ -95,22 +115,35 @@ class StepDialog(QDialog):
         form.addRow("&Key:", self.code_combo)
         form.addRow("&Action:", self.action_combo)
         form.addRow("&Delay:", self.delay_spin)
+        form.addRow("A&pp action:", self.app_combo)
         layout = QVBoxLayout(self)
         layout.addLayout(form)
         layout.addWidget(self.buttons)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
 
+    def _set_tab_order(self) -> None:
+        """Make Tab follow the visual order: type, key, action, delay, app action, OK/Cancel."""
+        chain = [self.kind_combo, self.code_combo, self.action_combo, self.delay_spin,
+                 self.app_combo, self.buttons.button(QDialogButtonBox.StandardButton.Ok),
+                 self.buttons.button(QDialogButtonBox.StandardButton.Cancel)]
+        for first, second in zip(chain, chain[1:]):
+            QWidget.setTabOrder(first, second)
+
     def _update_fields(self) -> None:
-        is_key = self.kind_combo.currentData() == KIND_KEY
-        self.code_combo.setEnabled(is_key)
-        self.action_combo.setEnabled(is_key)
-        self.delay_spin.setEnabled(not is_key)
+        kind = self.kind_combo.currentData()
+        self.code_combo.setEnabled(kind == KIND_KEY)
+        self.action_combo.setEnabled(kind == KIND_KEY)
+        self.delay_spin.setEnabled(kind == KIND_DELAY)
+        self.app_combo.setEnabled(kind == KIND_APP)
 
     def step(self) -> Any:
         """The edited step."""
-        if self.kind_combo.currentData() == KIND_DELAY:
+        kind = self.kind_combo.currentData()
+        if kind == KIND_DELAY:
             return DelayStep(self.delay_spin.value())
+        if kind == KIND_APP:
+            return AppActionStep(self.app_combo.currentData())
         return KeyStep(self.code_combo.currentText().strip(), self.action_combo.currentData())
 
 

@@ -45,7 +45,7 @@ def test_menu_entries(qtbot, settings):
     tray, _fake = _tray(qtbot, settings)
     assert _texts(tray) == ["Show/Hide Hueberry", "Macros: not started",
                             "Keep running in the background when closed",
-                            "Start Hueberry at login", "Quit"]
+                            "Start Hueberry at login", "System monitor", "Quit"]
     assert tray.close_to_tray_action.isChecked()
     assert not tray.autostart_action.isChecked()
     assert tray.tray_icon is None
@@ -92,6 +92,34 @@ def test_autostart_failure_reverts(qtbot, settings):
     assert fake.calls == [False]
     assert tray.autostart_action.isChecked()
     assert "read-only" in blocker.args[0]
+
+
+def test_sysmon_action_in_menu(qtbot, settings):
+    tray, _fake = _tray(qtbot, settings)
+    assert tray.sysmon_action in tray.menu.actions()
+    assert tray.sysmon_action.isCheckable()
+    assert not tray.sysmon_action.isChecked()
+
+
+def test_sysmon_trigger_emits_toggled(qtbot, settings):
+    tray, _fake = _tray(qtbot, settings)
+    with qtbot.waitSignal(tray.sysmon_toggled, timeout=1000) as blocker:
+        tray.sysmon_action.trigger()
+    assert blocker.args == [True]
+    with qtbot.waitSignal(tray.sysmon_toggled, timeout=1000) as blocker:
+        tray.sysmon_action.trigger()
+    assert blocker.args == [False]
+
+
+def test_set_sysmon_checked_does_not_emit(qtbot, settings):
+    tray, _fake = _tray(qtbot, settings)
+    received = []
+    tray.sysmon_toggled.connect(received.append)
+    tray.set_sysmon_checked(True)
+    assert tray.sysmon_action.isChecked()
+    tray.set_sysmon_checked(False)
+    assert not tray.sysmon_action.isChecked()
+    assert received == []
 
 
 def test_status_text_updates(qtbot, settings):

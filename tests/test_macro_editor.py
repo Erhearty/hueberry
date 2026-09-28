@@ -5,11 +5,12 @@
 import pytest
 from PyQt6.QtWidgets import QDialogButtonBox
 
+from hueberry import gui_link
 from hueberry.macros import model
-from hueberry.macros.model import DelayStep, KeyStep, Macro
+from hueberry.macros.model import AppActionStep, DelayStep, KeyStep, Macro
 from hueberry.macros.protocol import EngineError
 from hueberry.ui import worker
-from hueberry.ui.macro_editor import MacroEditorDialog, StepDialog, describe_step
+from hueberry.ui.macro_editor import KIND_APP, MacroEditorDialog, StepDialog, describe_step
 from hueberry.ui.macro_recorder import RecorderDialog, first_pressed
 
 IDENTITY = "1532:0084:Test Mouse:usb-1"
@@ -73,6 +74,57 @@ def test_describe_step():
     assert describe_step(KeyStep("KEY_A")) == "Tap A"
     assert describe_step(KeyStep("BTN_SIDE", model.ACTION_PRESS)) == "Press Button Side"
     assert describe_step(DelayStep(50)) == "Wait 50 ms"
+    toggle = AppActionStep(gui_link.APP_ACTION_TOGGLE_SYSMON)
+    assert describe_step(toggle) == "App: Toggle system monitor"
+    assert describe_step(AppActionStep("mystery")) == "App: mystery"
+
+
+def test_add_app_action_step(qtbot):
+    editor = _editor(qtbot)
+    editor.add_key_button.click()
+    dialog = editor.step_dialog
+    assert not dialog.app_combo.isEnabled()
+    assert dialog.app_combo.accessibleName() == "App action"
+    dialog.kind_combo.setCurrentIndex(dialog.kind_combo.findData(KIND_APP))
+    assert dialog.app_combo.isEnabled()
+    assert not dialog.code_combo.isEnabled() and not dialog.delay_spin.isEnabled()
+    dialog.app_combo.setCurrentIndex(dialog.app_combo.findData(gui_link.APP_ACTION_TOGGLE_SYSMON))
+    dialog.accept()
+    assert editor.steps() == [KeyStep("KEY_A"), AppActionStep(gui_link.APP_ACTION_TOGGLE_SYSMON)]
+    assert _texts(editor) == ["Tap A", "App: Toggle system monitor"]
+
+
+def test_edit_app_action_step_round_trips(qtbot):
+    step = AppActionStep(gui_link.APP_ACTION_TOGGLE_SYSMON)
+    editor = _editor(qtbot, _macro([KeyStep("KEY_A"), step]))
+    editor.steps_list.setCurrentRow(1)
+    editor.edit_button.click()
+    dialog = editor.step_dialog
+    assert dialog.kind_combo.currentData() == KIND_APP
+    assert dialog.app_combo.currentData() == gui_link.APP_ACTION_TOGGLE_SYSMON
+    assert dialog.app_combo.isEnabled() and not dialog.code_combo.isEnabled()
+    dialog.accept()
+    assert editor.steps() == [KeyStep("KEY_A"), step]
+
+
+def test_edit_delay_step_preselects_delay(qtbot):
+    dialog = StepDialog(DelayStep(20))
+    qtbot.addWidget(dialog)
+    assert dialog.kind_combo.currentData() == "delay"
+    assert dialog.step() == DelayStep(20)
+
+
+def test_step_dialog_tab_order(qtbot):
+    dialog = StepDialog()
+    qtbot.addWidget(dialog)
+    expected = [dialog.kind_combo, dialog.code_combo, dialog.action_combo, dialog.delay_spin,
+                dialog.app_combo, _ok(dialog)]
+    chain, widget = [dialog.kind_combo], dialog.kind_combo.nextInFocusChain()
+    while widget is not dialog.kind_combo and len(chain) < 500:
+        chain.append(widget)
+        widget = widget.nextInFocusChain()
+    positions = [chain.index(item) for item in expected]
+    assert positions == sorted(positions)
 
 
 def test_add_key_and_delay_steps(qtbot):
