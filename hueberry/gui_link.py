@@ -26,10 +26,15 @@ APP_ACTIONS = (APP_ACTION_TOGGLE_SYSMON,)
 APP_ACTION_LABELS = {APP_ACTION_TOGGLE_SYSMON: "Toggle system monitor"}
 
 
+def app_runtime_dir() -> Path:
+    """``$XDG_RUNTIME_DIR/hueberry`` (else ``/run/user/<uid>/hueberry``); not created."""
+    runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or RUNTIME_DIR_FALLBACK.format(uid=os.getuid())
+    return Path(runtime_dir) / SOCKET_DIR_NAME
+
+
 def default_server_name() -> str:
     """Absolute socket path in the per-user runtime dir (private, tmpfs)."""
-    runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or RUNTIME_DIR_FALLBACK.format(uid=os.getuid())
-    return str(Path(runtime_dir) / SOCKET_DIR_NAME / SOCKET_FILE_NAME)
+    return str(app_runtime_dir() / SOCKET_FILE_NAME)
 
 
 def action_message(action: str) -> bytes:
