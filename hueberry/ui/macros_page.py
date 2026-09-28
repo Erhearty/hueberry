@@ -13,14 +13,12 @@ import uuid
 from typing import Any
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QWidget,
-)
+from PyQt6.QtWidgets import QListWidgetItem, QWidget
 
 from hueberry.backend import macro_engine as engine_states
 from hueberry.macros import keycodes, store
 from hueberry.macros.model import DeviceMacros, Macro, MacroConfig, ModelError
-from hueberry.ui import layouts, theme, worker
+from hueberry.ui import macros_layout, macros_rows, worker
 from hueberry.ui.macro_editor import MacroEditorDialog
 from hueberry.ui.macros_banner import BANNER_STARTING, banner_text, state_label
 
@@ -28,13 +26,10 @@ __all__ = ["MacrosPage", "banner_text", "state_label"]
 
 logger = logging.getLogger(__name__)
 
-TITLE_TEXT = "Macros"
-BACK_TEXT = "\u2190 Devices"
 DEFAULT_TRIGGER = "BTN_SIDE"
 NEW_MACRO_NAME = "New macro"
 DEVICE_ROLE = Qt.ItemDataRole.UserRole
 NOT_CONNECTED_LABEL = "not connected"
-START_ENGINE_TEXT = "Start &engine"
 SUMMARY_RUNNING = "running, {count} grabbed"
 SUMMARY_TEXTS = {engine_states.STATE_EVDEV_MISSING: "python-evdev missing",
                  engine_states.STATE_STARTING: "starting"}
@@ -42,6 +37,8 @@ SUMMARY_DOWN = "not running"
 SAVED_TEXT = "Macros saved"
 SAVED_RELOADED_TEXT = "Macros saved and applied"
 SAVED_OFFLINE_TEXT = "Macros saved; they apply once the macro engine runs"
+RAZER_VENDOR = "1532"  # USB vendor id of Razer, as the engine reports it (lowercase hex)
+SUPPORTED_KINDS = ("keyboard", "mouse")  # device kinds the Macros page lists
 ENGINE_POLL_MS = 5000  # how often a crashed/stopped engine is noticed (poll() is a cheap waitpid)
 
 
@@ -63,8 +60,8 @@ class MacrosPage(QWidget):
         self._polled_state: str | None = None  # engine state seen by the last _poll_engine()
         self.editor: MacroEditorDialog | None = None
         self.config, self._load_error = store.load()
-        self._build_widgets()
-        self._build_layout()
+        macros_layout.build_widgets(self)
+        macros_layout.build_layout(self)
         self._connect_signals()
         self._show_devices()
         self.poll_timer = QTimer(self)
@@ -75,70 +72,16 @@ class MacrosPage(QWidget):
 
     # -- construction --------------------------------------------------------
 
-    def _build_widgets(self) -> None:
-        self.back_button = QPushButton(BACK_TEXT, self)
-        self.title_label = QLabel(TITLE_TEXT, self)
-        self.banner_label = QLabel(self)
-        self.banner_label.setWordWrap(True)
-        self.banner_label.setAccessibleName("Macro engine status")
-        theme.set_role(self.banner_label, "error")
-        self.start_button = QPushButton(START_ENGINE_TEXT, self)
-        self.device_list = QListWidget(self)
-        self.device_list.setAccessibleName("Input devices")
-        self.macro_list = QListWidget(self)
-        self.macro_list.setAccessibleName("Macros of the selected device")
-        self.add_button = QPushButton("&Add\u2026", self)
-        self.edit_button = QPushButton("&Edit\u2026", self)
-        self.delete_button = QPushButton("&Delete", self)
-        self.save_button = QPushButton("&Save", self)
-        theme.set_role(self.save_button, "primary")
-        self.refresh_button = QPushButton("Re&load", self)
-        self.refresh_button.setToolTip("Re-read device states from the macro engine")
-
-    def _build_layout(self) -> None:
-        header = layouts.page_header(self.back_button, self.title_label, self.refresh_button)
-        devices_card, devices_layout = layouts.section_card("Devices", self)
-        devices_layout.addWidget(self.device_list, 1)
-        body = QHBoxLayout()
-        body.setSpacing(theme.SPACING_M)
-        body.addWidget(devices_card, 1)
-        body.addWidget(self._macros_card(), 2)
-        outer = layouts.page_layout(self)
-        outer.addLayout(header)
-        self.engine_card = self._engine_card()
-        outer.addWidget(self.engine_card)
-        outer.addLayout(body, 1)
-
-    def _engine_card(self) -> QFrame:
-        """Return the Macro engine card: the status banner and the Start button."""
-        card, layout = layouts.section_card("Macro engine", self)
-        banner = QHBoxLayout()
-        banner.addWidget(self.banner_label, 1)
-        banner.addWidget(self.start_button)
-        layout.addLayout(banner)
-        return card
-
-    def _macros_card(self) -> QFrame:
-        """Return the Macros card: the macro list, then Add/Edit/Delete and Save."""
-        card, layout = layouts.section_card("Macros", self)
-        buttons = QHBoxLayout()
-        buttons.setSpacing(theme.SPACING_S)
-        for button in (self.add_button, self.edit_button, self.delete_button):
-            buttons.addWidget(button)
-        buttons.addStretch(1)
-        buttons.addWidget(self.save_button)
-        layout.addWidget(self.macro_list, 1)
-        layout.addLayout(buttons)
-        return card
-
     def _connect_signals(self) -> None:
         self.back_button.clicked.connect(self.back_requested)
         self.refresh_button.clicked.connect(self.refresh)
         self.start_button.clicked.connect(self.start_engine)
-        self.device_list.currentRowChanged.connect(lambda _row: self._show_macros())
-        self.macro_list.currentRowChanged.connect(lambda _row: self._update_buttons())
+        self.device_list.currentRowChanged.connect(lambda _row: self._on_device_changed())
+        self.macro_list.currentRowChanged.connect(lambda _row: self._on_macro_changed())
         self.macro_list.itemChanged.connect(self._on_macro_toggled)
         self.macro_list.itemActivated.connect(lambda _item: self._edit_macro())
+        self._space_filter = macros_rows.SpaceToggleFilter(self)
+        self.macro_list.installEventFilter(self._space_filter)
         self.add_button.clicked.connect(self._add_macro)
         self.edit_button.clicked.connect(self._edit_macro)
         self.delete_button.clicked.connect(self._delete_macro)
@@ -203,14 +146,29 @@ class MacrosPage(QWidget):
         self._engine_config_error = status.get("config_error")
         devices: dict[str, dict] = {}
         for entry in listed.get("devices", []):
-            if entry.get("has_keys", True):
+            if self._is_listed(entry):
                 devices[entry["identity"]] = {"name": entry.get("name", ""), "state": entry.get("state"),
-                                              "error": None, "present": True}
+                                              "error": None, "present": True, "kind": entry.get("kind")}
         for entry in status.get("devices", []):
             known = devices.setdefault(entry["identity"], {"name": entry.get("name", ""), "present": False})
             known.update(state=entry.get("state"), error=entry.get("error"))
         self._devices = devices
         self._show_devices()
+
+    def _is_listed(self, entry: dict) -> bool:
+        """Whether a list_devices row is shown: a Razer keyboard or mouse with keys.
+
+        Rows of an older engine lack ``vendor``/``kind``: the vendor is then read from the
+        identity and a missing kind is allowed. Devices with saved macros are always shown.
+        """
+        if not entry.get("has_keys", True):
+            return False
+        identity = entry["identity"]
+        if self.config.for_device(identity) is not None:
+            return True
+        vendor = entry.get("vendor") or identity.split(":")[0]
+        kind = entry.get("kind")
+        return vendor.lower() == RAZER_VENDOR and (kind is None or kind in SUPPORTED_KINDS)
 
     @worker.ignore_deleted
     def _on_fetch_failed(self, message: str) -> None:
@@ -247,33 +205,60 @@ class MacrosPage(QWidget):
 
     # -- device and macro lists ----------------------------------------------
 
-    def _rows(self) -> list[tuple[str, str, str]]:
+    def _rows(self) -> list[tuple[str, str, str, str]]:
+        """``(identity, name, state label, state key)`` per device, sorted by name."""
         rows = {}
         for identity, info in self._devices.items():
-            label = state_label(info.get("state")) if info.get("present") or info.get("state") \
-                else NOT_CONNECTED_LABEL
-            rows[identity] = (info.get("name") or identity, label)
+            state = info.get("state")
+            connected = info.get("present") or state
+            rows[identity] = (info.get("name") or identity,
+                              state_label(state) if connected else NOT_CONNECTED_LABEL,
+                              (state or macros_rows.IDLE_STATE) if connected else macros_rows.OFFLINE_STATE)
         for device in self.config.devices:
-            rows.setdefault(device.identity, (device.name or device.identity, NOT_CONNECTED_LABEL))
-        return sorted(((identity, name, label) for identity, (name, label) in rows.items()),
+            rows.setdefault(device.identity, (device.name or device.identity, NOT_CONNECTED_LABEL,
+                                              macros_rows.OFFLINE_STATE))
+        return sorted(((identity, *row) for identity, row in rows.items()),
                       key=lambda row: row[1].lower())
+
+    def _add_device_item(self, identity: str, name: str, label: str, state: str) -> QListWidgetItem:
+        """Append a device item (text = accessible label, identity under UserRole) and its row."""
+        info = self._devices.get(identity, {})
+        kind = info.get("kind")
+        shown_name = f"{name} ({kind})" if kind in SUPPORTED_KINDS else name
+        item = QListWidgetItem(f"{shown_name} \u2013 {label}", self.device_list)
+        item.setData(DEVICE_ROLE, identity)
+        error = info.get("error")
+        item.setToolTip(f"{identity}\n{error}" if error else identity)
+        row = macros_rows.DeviceRow(name, state, label, kind=kind)
+        item.setSizeHint(row.sizeHint())
+        self.device_list.setItemWidget(item, row)
+        return item
 
     def _show_devices(self) -> None:
         selected = self.selected_identity()
         self.device_list.blockSignals(True)
         self.device_list.clear()
-        for identity, name, label in self._rows():
-            item = QListWidgetItem(f"{name} \u2013 {label}", self.device_list)
-            item.setData(DEVICE_ROLE, identity)
-            error = self._devices.get(identity, {}).get("error")
-            item.setToolTip(f"{identity}\n{error}" if error else identity)
+        for identity, name, label, state in self._rows():
+            item = self._add_device_item(identity, name, label, state)
             if identity == selected:
                 self.device_list.setCurrentItem(item)
         if self.device_list.currentRow() < 0 and self.device_list.count():
             self.device_list.setCurrentRow(0)
         self.device_list.blockSignals(False)
+        self.device_empty_label.setVisible(self.device_list.count() == 0)
+        macros_rows.mark_current(self.device_list)
         self._show_macros()
         self._update_banner()
+
+    def _on_device_changed(self) -> None:
+        """Device selection slot: highlight the row and show its macros."""
+        macros_rows.mark_current(self.device_list)
+        self._show_macros()
+
+    def _on_macro_changed(self) -> None:
+        """Macro selection slot: highlight the row and update Edit/Delete."""
+        macros_rows.mark_current(self.macro_list)
+        self._update_buttons()
 
     def _device_macros(self, create: bool = False) -> DeviceMacros | None:
         identity = self.selected_identity()
@@ -291,14 +276,28 @@ class MacrosPage(QWidget):
         self.macro_list.blockSignals(True)
         self.macro_list.clear()
         for macro in device.macros if device is not None else []:
-            item = QListWidgetItem(f"{macro.name} ({keycodes.display_name(macro.trigger)})",
-                                   self.macro_list)
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            item.setCheckState(Qt.CheckState.Checked if macro.enabled else Qt.CheckState.Unchecked)
+            self._add_macro_item(macro)
         if 0 <= select < self.macro_list.count():
             self.macro_list.setCurrentRow(select)
         self.macro_list.blockSignals(False)
+        self.macro_empty_label.setText(macros_layout.NO_MACROS_TEXT if self.selected_identity()
+                                       else macros_layout.NO_DEVICE_SELECTED_TEXT)
+        self.macro_empty_label.setVisible(self.macro_list.count() == 0)
+        macros_rows.mark_current(self.macro_list)
         self._update_buttons()
+
+    def _add_macro_item(self, macro: Macro) -> None:
+        """Append a checkable macro item (checked = enabled) and its row, kept in sync."""
+        text = (f"{macro.name} ({keycodes.display_name(macro.trigger)}) \u2013 "
+                f"{macros_rows.repeat_badge_text(macro)}, {macros_rows.steps_text(len(macro.steps))}")
+        item = QListWidgetItem(text, self.macro_list)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(Qt.CheckState.Checked if macro.enabled else Qt.CheckState.Unchecked)
+        row = macros_rows.MacroRow(macro)
+        row.enabled_check.toggled.connect(lambda checked, item=item: item.setCheckState(
+            Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked))
+        item.setSizeHint(row.sizeHint())
+        self.macro_list.setItemWidget(item, row)
 
     def _update_buttons(self) -> None:
         has_device = self.selected_identity() is not None
@@ -338,8 +337,12 @@ class MacrosPage(QWidget):
     def _on_macro_toggled(self, item: QListWidgetItem) -> None:
         device = self._device_macros()
         row = self.macro_list.row(item)
+        enabled = item.checkState() == Qt.CheckState.Checked
+        widget = self.macro_list.itemWidget(item)
+        if isinstance(widget, macros_rows.MacroRow):
+            widget.set_checked(enabled)
         if device is not None and 0 <= row < len(device.macros):
-            device.macros[row].enabled = item.checkState() == Qt.CheckState.Checked
+            device.macros[row].enabled = enabled
             self._mark_dirty()
 
     def _add_macro(self) -> None:

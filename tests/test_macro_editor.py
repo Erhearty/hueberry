@@ -201,6 +201,80 @@ def test_cancel_while_recording_stops_engine(qtbot):
     assert engine.calls[-1] == ("record_stop",)
 
 
+def test_repeat_defaults_to_once(qtbot):
+    editor = _editor(qtbot)
+    assert editor.repeat_once_radio.isChecked()
+    assert not editor.repeat_count_spin.isEnabled()
+    assert editor.macro().repeat_mode == model.REPEAT_ONCE
+    assert editor.repeat_count_spin.minimum() == model.MIN_REPEAT_COUNT
+    assert editor.repeat_count_spin.maximum() == model.MAX_REPEAT_COUNT
+
+
+def test_repeat_times_enables_count(qtbot):
+    editor = _editor(qtbot)
+    editor.repeat_times_radio.setChecked(True)
+    assert editor.repeat_count_spin.isEnabled()
+    editor.repeat_count_spin.setValue(7)
+    macro = editor.macro()
+    assert (macro.repeat_mode, macro.repeat_count) == (model.REPEAT_TIMES, 7)
+    editor.repeat_once_radio.setChecked(True)
+    assert not editor.repeat_count_spin.isEnabled()
+
+
+def test_repeat_toggle_round_trips(qtbot):
+    editor = _editor(qtbot)
+    editor.repeat_toggle_radio.setChecked(True)
+    again = _editor(qtbot, editor.macro())
+    assert again.repeat_toggle_radio.isChecked()
+    assert again.macro().repeat_mode == model.REPEAT_TOGGLE
+
+
+@pytest.mark.parametrize("mode", [model.REPEAT_TIMES, model.REPEAT_TOGGLE])
+def test_ok_without_changes_keeps_repeat(qtbot, mode):
+    macro = _macro()
+    macro.repeat_mode, macro.repeat_count = mode, 12
+    editor = _editor(qtbot, macro)
+    assert editor.repeat_count_spin.value() == 12
+    assert editor.repeat_times_radio.isChecked() == (mode == model.REPEAT_TIMES)
+    assert _ok(editor).isEnabled()
+    _ok(editor).click()
+    assert editor.result() == 1
+    result = editor.macro()
+    assert (result.repeat_mode, result.repeat_count) == (mode, 12)
+    assert result == macro
+
+
+def test_ok_keeps_out_of_range_count_of_toggle_macro(qtbot):
+    macro = _macro()
+    macro.repeat_mode, macro.repeat_count = model.REPEAT_TOGGLE, 5000
+    editor = _editor(qtbot, macro)
+    _ok(editor).click()
+    assert editor.result() == 1
+    assert editor.macro() == macro
+
+
+def test_tab_order_follows_visual_order(qtbot):
+    editor = _editor(qtbot)
+    expected = [editor.name_edit, editor.trigger_combo, editor.capture_button,
+                editor.enabled_check, editor.repeat_once_radio, editor.repeat_times_radio,
+                editor.repeat_count_spin, editor.repeat_toggle_radio, editor.steps_list,
+                editor.add_key_button, editor.delete_button, _ok(editor)]
+    chain, widget = [editor.name_edit], editor.name_edit.nextInFocusChain()
+    while widget is not editor.name_edit and len(chain) < 500:
+        chain.append(widget)
+        widget = widget.nextInFocusChain()
+    positions = [chain.index(item) for item in expected]
+    assert positions == sorted(positions)
+
+
+def test_repeat_stop_hint_is_muted(qtbot):
+    editor = _editor(qtbot)
+    hint = editor.repeat_group.hint_label
+    assert "again stops" in hint.text()
+    assert hint.property("role") == "muted"
+    assert editor.repeat_group.count_label.buddy() is editor.repeat_count_spin
+
+
 def test_first_pressed_skips_releases_and_invalid():
     assert first_pressed([["KEY_A", 0, 0.0], ["BOGUS", 1, 0.1], ["KEY_B", 1, 0.2]]) == "KEY_B"
     assert first_pressed([]) is None

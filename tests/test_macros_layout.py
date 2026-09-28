@@ -41,6 +41,7 @@ def test_devices_card_holds_device_list(page):
     card = _cards(page)["Devices"]
     assert card.isAncestorOf(page.device_list)
     assert not card.isAncestorOf(page.macro_list)
+    assert card.isAncestorOf(page.device_empty_label)
 
 
 def test_macros_card_holds_list_and_buttons(page):
@@ -49,3 +50,9 @@ def test_macros_card_holds_list_and_buttons(page):
                    page.save_button):
         assert card.isAncestorOf(widget)
     assert not card.isAncestorOf(page.refresh_button)
+    assert card.isAncestorOf(page.macro_empty_label)
+
+
+def test_add_and_save_are_primary(page):
+    assert page.add_button.property("role") == "primary"
+    assert page.save_button.property("role") == "primary"

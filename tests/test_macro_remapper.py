@@ -9,14 +9,14 @@ from fake_evdev import make_event
 
 from hueberry.macro_engine import remapper as remapper_mod
 from hueberry.macro_engine.remapper import DeviceRemapper
-from hueberry.macros.model import KeyStep, Macro
+from hueberry.macros.model import REPEAT_ONCE, REPEAT_TIMES, REPEAT_TOGGLE, KeyStep, Macro
 
 EV_SYN, EV_KEY, EV_REL = 0, 1, 2
 BTN_LEFT, BTN_SIDE, BTN_EXTRA = 0x110, 0x113, 0x114
 
 
 class _FakePlayer:
-    """Records play() calls; exposes the lock the remapper writes under."""
+    """Records play()/stop() calls; stays 'playing' until stop(); ignores play while playing."""
 
     def __init__(self, uinput):
         import threading
@@ -24,14 +24,22 @@ class _FakePlayer:
         self.uinput = uinput
         self.lock = threading.Lock()
         self.played = []
+        self.calls = []
         self.stopped = 0
+        self.playing = False
+        self.current = None
 
-    def play(self, steps):
+    def play(self, steps, iterations=1, key=None):
+        if self.playing:
+            return False
         self.played.append(steps)
+        self.calls.append((steps, iterations, key))
+        self.playing, self.current = True, key
         return True
 
     def stop(self):
         self.stopped += 1
+        self.playing, self.current = False, None
 
 
 @pytest.fixture
@@ -89,6 +97,24 @@ def test_only_enabled_macros_count(fake_evdev, mouse):
     assert fake_evdev.call_log == []
 
 
+def test_node_without_trigger_code_stays_inactive(fake_evdev):
+    """A node that cannot emit the trigger (another interface of the device) is never cloned or grabbed."""
+    keyboard_node = fake_evdev.InputDevice("/dev/input/event9", name="Razer Naga", keys=[30])
+    remapper = _remapper(keyboard_node)
+    assert not remapper.start()
+    assert remapper.state == "inactive" and not remapper.pending_grab
+    assert keyboard_node.grab_calls == 0 and fake_evdev.call_log == [] and fake_evdev.UInput.instances == []
+
+
+def test_only_triggers_the_node_emits_are_armed(fake_evdev):
+    """Triggers missing from the node's EV_KEY capabilities pass through instead of being swallowed."""
+    dev = fake_evdev.InputDevice("/dev/input/event9", name="Razer Naga", keys=[BTN_LEFT, BTN_SIDE])
+    remapper = _remapper(dev, Macro("m1", "Hi", True, "BTN_SIDE", [KeyStep("KEY_H")]),
+                         Macro("m2", "Ex", True, "BTN_EXTRA", [KeyStep("KEY_B")]))
+    assert remapper.start()
+    assert set(remapper._triggers) == {BTN_SIDE}
+
+
 def test_passthrough_and_trigger_dispatch(fake_evdev, mouse):
     """Trigger press plays and is swallowed (as are release/repeat); others pass through."""
     remapper = _remapper(mouse, Macro("m1", "Hi", True, "BTN_SIDE", [KeyStep("KEY_H")]),
@@ -103,6 +129,63 @@ def test_passthrough_and_trigger_dispatch(fake_evdev, mouse):
     assert clone.writes == [(EV_KEY, BTN_LEFT, 1), (EV_REL, 0, 3), (EV_KEY, BTN_EXTRA, 1), (EV_SYN, 0, 0)]
     player = remapper._player
     assert player.played == [[KeyStep("KEY_H")]]
+
+
+def _press(remapper, code):
+    remapper.handle(make_event(EV_KEY, code, 1))
+    remapper.handle(make_event(EV_KEY, code, 0))
+
+
+def _repeating(mode, count=1, trigger="BTN_SIDE", macro_id="m1"):
+    return Macro(macro_id, "Loop", True, trigger, [KeyStep("KEY_H")], repeat_mode=mode, repeat_count=count)
+
+
+@pytest.mark.parametrize("mode, count, iterations", [
+    (REPEAT_ONCE, 5, 1), (REPEAT_TIMES, 4, 4), (REPEAT_TOGGLE, 1, None),
+])
+def test_trigger_plays_with_repeat_iterations(fake_evdev, mouse, mode, count, iterations):
+    """once plays one iteration, times N passes N, toggle loops (None); the trigger code is the key."""
+    remapper = _remapper(mouse, _repeating(mode, count))
+    remapper.start()
+    _press(remapper, BTN_SIDE)
+    assert remapper._player.calls == [([KeyStep("KEY_H")], iterations, BTN_SIDE)]
+
+
+@pytest.mark.parametrize("mode", [REPEAT_TOGGLE, REPEAT_TIMES])
+def test_repress_stops_a_loop(fake_evdev, mouse, mode):
+    """A second press of a playing toggle / N-times trigger stops it; a third starts it again."""
+    remapper = _remapper(mouse, _repeating(mode, 3))
+    remapper.start()
+    player = remapper._player
+    _press(remapper, BTN_SIDE)
+    assert player.playing and player.stopped == 0
+    _press(remapper, BTN_SIDE)
+    assert not player.playing and player.stopped == 1 and len(player.calls) == 1
+    _press(remapper, BTN_SIDE)
+    assert player.playing and len(player.calls) == 2
+
+
+def test_repress_of_once_macro_does_not_stop_it(fake_evdev, mouse):
+    """Re-pressing a still-playing once macro is ignored, not a stop."""
+    remapper = _remapper(mouse, _repeating(REPEAT_ONCE))
+    remapper.start()
+    _press(remapper, BTN_SIDE)
+    _press(remapper, BTN_SIDE)
+    player = remapper._player
+    assert player.stopped == 0 and player.playing and len(player.calls) == 1
+
+
+def test_other_trigger_while_playing_is_ignored(fake_evdev, mouse):
+    """A different trigger during a loop neither stops it nor starts its own macro."""
+    remapper = _remapper(mouse, _repeating(REPEAT_TOGGLE),
+                         _repeating(REPEAT_TOGGLE, trigger="BTN_EXTRA", macro_id="m2"))
+    remapper.start()
+    _press(remapper, BTN_SIDE)
+    _press(remapper, BTN_EXTRA)
+    player = remapper._player
+    assert player.stopped == 0 and player.current == BTN_SIDE and len(player.calls) == 1
+    (clone,) = fake_evdev.UInput.instances
+    assert clone.writes == []
 
 
 def test_write_failure_ungrabs(fake_evdev, mouse):

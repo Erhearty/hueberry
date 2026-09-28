@@ -25,6 +25,8 @@ from hueberry.macros.model import DeviceMacros, KeyStep, Macro, MacroConfig
 
 EV_SYN, EV_KEY = 0, 1
 BTN_LEFT, BTN_SIDE, KEY_A = 0x110, 0x113, 30
+REL_X = 0x00
+LOGITECH_VENDOR = 0x046D
 MAX_ALIVE_CHECKS = 100  # guard: a serve() loop in a test can never spin forever
 
 
@@ -60,6 +62,14 @@ def mouse(fake_evdev):
 @pytest.fixture
 def keyboard(fake_evdev):
     return fake_evdev.InputDevice("/dev/input/event6", name="Keyboard", keys=[KEY_A], phys="usb-2/input0")
+
+
+@pytest.fixture
+def naga_nodes(fake_evdev):
+    """One physical mouse exposed as three event nodes (keyboard, mouse, keyboard interfaces)."""
+    keys = ([KEY_A], [BTN_LEFT, BTN_SIDE], [KEY_A])
+    return [fake_evdev.InputDevice(f"/dev/input/event{20 + index}", name="Razer Naga", keys=node_keys,
+                                   phys=f"usb-3/input{index}") for index, node_keys in enumerate(keys)]
 
 
 def _config(dev, enabled=True):
@@ -194,7 +204,7 @@ def test_record_round_trip_ungrabbed(sock_dir, keyboard):
         identity = devices.identity(keyboard)
         assert _ask(server, "record_start", identity=identity)["ok"]
         assert not _ask(server, "record_start", identity=identity)["ok"]
-        assert keyboard.grab_calls == 0 and not keyboard.closed
+        assert not keyboard.grabbed and keyboard.grab_calls == keyboard.ungrab_calls and not keyboard.closed
         keyboard.queue_events(make_event(EV_KEY, KEY_A, 1, 5.0), make_event(EV_KEY, KEY_A, 2, 5.1),
                               make_event(EV_KEY, KEY_A, 0, 5.2))
         server.run_once(0)
@@ -217,6 +227,197 @@ def test_record_on_remapped_device_keeps_grab(sock_dir, mouse):
         server.run_once(0)
         assert _ask(server, "record_stop")["result"]["events"] == [["BTN_LEFT", 1, 0.0]]
         assert mouse.grabbed and not mouse.closed
+    finally:
+        server.close()
+
+
+def test_record_across_all_nodes_of_identity(sock_dir, naga_nodes):
+    """Events on the 2nd of 3 nodes of one device are recorded; every node is closed afterwards."""
+    server = _server(sock_dir, MacroConfig())
+    server.setup()
+    try:
+        identity = devices.identity(naga_nodes[0])
+        assert _ask(server, "record_start", identity=identity)["ok"]
+        assert sorted(server._handles) == [node.path for node in naga_nodes]
+        assert all(not node.grabbed and not node.closed for node in naga_nodes)
+        naga_nodes[1].queue_events(make_event(EV_KEY, BTN_SIDE, 1, 2.0), make_event(EV_KEY, BTN_SIDE, 0, 2.1))
+        server.run_once(0)
+        result = _ask(server, "record_stop")["result"]
+        assert result["events"] == [["BTN_SIDE", 1, 0.0], ["BTN_SIDE", 0, 0.1]]
+        assert server._handles == {} and all(node.closed for node in naga_nodes)
+    finally:
+        server.close()
+
+
+def test_record_skips_nodes_that_fail_to_open(sock_dir, fake_evdev, naga_nodes):
+    """A node that cannot be opened is skipped; recording uses the rest; none opened is an error."""
+    failing = {naga_nodes[0].path}
+
+    def _open(path):
+        if path in failing:
+            raise OSError(13, "Permission denied")
+        return fake_evdev.InputDevice(path)
+
+    server = _server(sock_dir, MacroConfig(), open_device=_open)
+    server.setup()
+    try:
+        identity = devices.identity(naga_nodes[0])
+        assert _ask(server, "record_start", identity=identity)["ok"]
+        assert sorted(server._handles) == [naga_nodes[1].path, naga_nodes[2].path]
+        _ask(server, "record_stop")
+        failing.update(node.path for node in naga_nodes)
+        reply = _ask(server, "record_start", identity=identity)
+        assert not reply["ok"] and server._handles == {}
+    finally:
+        server.close()
+
+
+def test_list_devices_one_row_per_identity(sock_dir, naga_nodes):
+    """Three nodes of one device are listed as one row carrying every path."""
+    server = _server(sock_dir, _config(naga_nodes[0]))
+    server.setup()
+    try:
+        (row,) = _ask(server, "list_devices")["result"]["devices"]
+        assert row == {"identity": devices.identity(naga_nodes[0]), "path": naga_nodes[0].path,
+                       "name": "Razer Naga", "vendor": "1532", "kind": "keyboard", "has_keys": True,
+                       "state": "active", "paths": [node.path for node in naga_nodes]}
+    finally:
+        server.close()
+
+
+def _list_rows(sock_dir):
+    server = _server(sock_dir, MacroConfig())
+    server.setup()
+    try:
+        return _ask(server, "list_devices")["result"]["devices"]
+    finally:
+        server.close()
+
+
+def test_list_devices_kind_from_primary_pointer(sock_dir, fake_evdev):
+    """A pointer on input0 makes the identity a mouse even though input1 has KEY_A."""
+    configs = ({"keys": [BTN_LEFT, BTN_SIDE], "rel": [REL_X]}, {"keys": [KEY_A]}, {"keys": [BTN_SIDE]})
+    for index, config in enumerate(configs):
+        fake_evdev.InputDevice(f"/dev/input/event{30 + index}", name="Gaming Mouse", phys=f"usb-4/input{index}",
+                               **config)
+    (row,) = _list_rows(sock_dir)
+    assert row["kind"] == "mouse"
+
+
+def test_list_devices_kind_from_primary_keyboard(sock_dir, fake_evdev):
+    """A keyboard with a pointer interface on input2 stays a keyboard."""
+    configs = ({"keys": [KEY_A]}, {"keys": [BTN_SIDE]}, {"keys": [BTN_LEFT], "rel": [REL_X]})
+    for index, config in enumerate(configs):
+        fake_evdev.InputDevice(f"/dev/input/event{40 + index}", name="Keyboard", phys=f"usb-5/input{index}",
+                               **config)
+    (row,) = _list_rows(sock_dir)
+    assert row["kind"] == "keyboard"
+
+
+def test_list_devices_reports_vendor(sock_dir, fake_evdev):
+    """The vendor id is reported as four lowercase hex digits."""
+    fake_evdev.InputDevice("/dev/input/event50", name="G502", vendor=LOGITECH_VENDOR, keys=[BTN_LEFT],
+                           phys="usb-6/input0")
+    (row,) = _list_rows(sock_dir)
+    assert row["vendor"] == "046d"
+
+
+def test_remaps_only_nodes_with_the_trigger(sock_dir, fake_evdev, naga_nodes):
+    """One remapper per node: only the node emitting the trigger is grabbed; status has one row."""
+    server = _server(sock_dir, _config(naga_nodes[0]))
+    server.setup()
+    try:
+        assert [node.grabbed for node in naga_nodes] == [False, True, False]
+        assert naga_nodes[0].closed and naga_nodes[2].closed and len(fake_evdev.UInput.instances) == 1
+        (state,) = _ask(server, "status")["result"]["devices"]
+        assert state["state"] == "active"
+    finally:
+        server.close()
+
+
+def test_identity_state_takes_worst_node(sock_dir, fake_evdev):
+    """Node states fold into one identity state: busy outranks active."""
+    nodes = [fake_evdev.InputDevice(f"/dev/input/event{30 + index}", name="Pad", keys=[BTN_SIDE],
+                                    phys=f"usb-4/input{index}") for index in range(2)]
+    nodes[1].grab_error = 16  # EBUSY
+    server = _server(sock_dir, _config(nodes[0]))
+    server.setup()
+    try:
+        (state,) = _ask(server, "status")["result"]["devices"]
+        assert state["state"] == "busy" and state["error"]
+        assert nodes[0].grabbed
+    finally:
+        server.close()
+
+
+def test_record_refused_when_every_node_is_grabbed_elsewhere(sock_dir, naga_nodes):
+    """All nodes EBUSY on the probe grab: an explicit error and nothing left open."""
+    for node in naga_nodes:
+        node.grab_error = 16  # EBUSY
+    server = _server(sock_dir, MacroConfig())
+    server.setup()
+    try:
+        reply = _ask(server, "record_start", identity=devices.identity(naga_nodes[0]))
+        assert not reply["ok"] and "grabbed exclusively" in reply["error"]
+        assert server._handles == {} and all(node.closed for node in naga_nodes)
+        assert _ask(server, "status")["result"]["recording"] is None
+    finally:
+        server.close()
+
+
+def test_record_reports_partly_blocked_nodes(sock_dir, naga_nodes):
+    """Some nodes grabbed elsewhere: recording goes ahead and says how many are blocked."""
+    naga_nodes[0].grab_error = 16  # EBUSY
+    server = _server(sock_dir, MacroConfig())
+    server.setup()
+    try:
+        result = _ask(server, "record_start", identity=devices.identity(naga_nodes[0]))["result"]
+        assert result["blocked_nodes"] == 1
+        assert not any(node.grabbed for node in naga_nodes)
+    finally:
+        server.close()
+
+
+def test_held_keys_skip_the_grab_probe(sock_dir, fake_evdev, naga_nodes):
+    """With keys held the probe never grabs (it would hide the release), so nothing counts as blocked."""
+    for node in naga_nodes:
+        node.grab_error = 16  # EBUSY
+        node.held_keys = [KEY_A]
+    server = _server(sock_dir, MacroConfig())
+    server.setup()
+    try:
+        result = _ask(server, "record_start", identity=devices.identity(naga_nodes[0]))["result"]
+        assert "blocked_nodes" not in result
+        assert not [call for call in fake_evdev.call_log if call[0] == "grab"]
+    finally:
+        server.close()
+
+
+def test_engine_remapped_node_is_not_probed(sock_dir, mouse):
+    """A node the engine grabs itself is not probed (the probe would only see our own grab)."""
+    probed = []
+    server = _server(sock_dir, _config(mouse), probe_grab=lambda dev: probed.append(dev) or True)
+    server.setup()
+    try:
+        result = _ask(server, "record_start", identity=devices.identity(mouse))["result"]
+        assert probed == [] and "blocked_nodes" not in result and mouse.grabbed
+    finally:
+        server.close()
+
+
+def test_record_with_engine_remapped_node_and_other_nodes_busy(sock_dir, naga_nodes):
+    """Every probed node busy but one node remapped by the engine: recording goes ahead via that node."""
+    naga_nodes[0].grab_error = naga_nodes[2].grab_error = 16  # EBUSY
+    server = _server(sock_dir, _config(naga_nodes[0]))
+    server.setup()
+    try:
+        assert naga_nodes[1].grabbed
+        result = _ask(server, "record_start", identity=devices.identity(naga_nodes[0]))["result"]
+        assert result["blocked_nodes"] == 2
+        naga_nodes[1].queue_events(make_event(EV_KEY, BTN_LEFT, 1, 1.0))
+        server.run_once(0)
+        assert _ask(server, "record_stop")["result"]["events"] == [["BTN_LEFT", 1, 0.0]]
+        assert naga_nodes[1].grabbed and not naga_nodes[1].closed
     finally:
         server.close()
 

@@ -225,6 +225,21 @@ QScrollBar::handle:vertical {{ background-color: {BORDER}; border-radius: {RADIU
 QScrollBar::handle:vertical:hover {{ background-color: {ACCENT}; }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: none; }}
+QWidget#listRow {{ background-color: {SURFACE}; border-radius: {RADIUS_PX}px; }}
+QWidget#listRow[selected="true"] {{
+    background-color: {SURFACE_RAISED}; border-left: {TAB_INDICATOR_PX}px solid {ACCENT};
+}}
+QLabel#stateChip, QLabel#triggerChip, QLabel#repeatBadge {{
+    background-color: transparent; border: {BORDER_PX}px solid {BORDER};
+    border-radius: {CARD_RADIUS_PX}px; padding: 0 {SPACING_S}px;
+}}
+QLabel#stateChip {{ color: {TEXT_MUTED}; }}
+QLabel#stateChip[state="active"] {{ color: {ACCENT}; border-color: {ACCENT}; }}
+QLabel#stateChip[state="error"], QLabel#stateChip[state="permission_denied"] {{
+    color: {ERROR}; border-color: {ERROR};
+}}
+QLabel#triggerChip {{ color: {TEXT}; }}
+QLabel#repeatBadge {{ color: {ACCENT}; }}
 """
 
 

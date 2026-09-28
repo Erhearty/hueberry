@@ -19,6 +19,20 @@ from typing import Any, Callable
 from hueberry.macro_engine import devices
 from hueberry.macro_engine.handles import DeviceHandle
 from hueberry.macro_engine.listener import AlreadyRunning, prepare_socket, probe_engine  # noqa: F401 - re-export
+from hueberry.macro_engine.nodes import (
+    STATE_DISCONNECTED,
+    aggregate_states,
+    attach_missing,
+    close_handle,
+    device_rows,
+    engine_grabs,
+    node_state,
+    open_handle,
+    paths_of,
+    probe_nodes,
+    remapper_state,
+    wanted_entries,
+)
 from hueberry.macro_engine.recorder import Recorder
 from hueberry.macro_engine.remapper import DeviceRemapper, state_for_error
 from hueberry.macros import protocol, store
@@ -35,6 +49,8 @@ KIND_DEVICE = "device"
 KIND_PARENT = "parent"
 KIND_WAKEUP = "wakeup"
 MSG_INTERNAL_ERROR = "internal engine error; see the engine log"
+MSG_GRABBED_EXCLUSIVELY = ("device is grabbed exclusively by another program (e.g. keyd or OpenRazer macro mode); "
+                           "exclude it there (keyd: add -<vendor>:<product> under [ids]) and retry")
 
 
 class CommandError(ValueError):
@@ -60,6 +76,7 @@ class EngineServer:
         remapper_factory: Callable[..., Any] = DeviceRemapper,
         recorder_factory: Callable[[str], Any] = Recorder,
         probe: Callable[[Path], bool] = probe_engine,
+        probe_grab: Callable[[Any], bool] = devices.probe_foreign_grab,
         poll_interval: float = POLL_INTERVAL_S,
     ) -> None:
         self.path = Path(path)
@@ -71,12 +88,13 @@ class EngineServer:
         self._remapper_factory = remapper_factory
         self._recorder_factory = recorder_factory
         self._probe = probe
+        self._probe_grab = probe_grab
         self._poll_interval = poll_interval
         self._selector = selectors.DefaultSelector()
         self._listener: socket.socket | None = None
         self._owns_socket = False
-        self._handles: dict[str, DeviceHandle] = {}
-        self._states: dict[str, dict] = {}
+        self._handles: dict[str, DeviceHandle] = {}  # keyed by node path
+        self._node_states: dict[str, dict] = {}  # keyed by node path, see nodes.node_state
         self._recorder: Any = None
         self._stopping = False
         self._closed = False
@@ -90,6 +108,11 @@ class EngineServer:
             KIND_LISTENER: self._accept, KIND_CLIENT: self._serve_client,
             KIND_DEVICE: self._read_device, KIND_PARENT: self._parent_exited, KIND_WAKEUP: self._drain_wakeup,
         }
+
+    @property
+    def _states(self) -> dict[str, dict]:
+        """Per-identity ``{name, state, error}``, folded from the node states."""
+        return aggregate_states(self._node_states)
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -150,11 +173,11 @@ class EngineServer:
         if self._closed:
             return
         self._closed = True
-        for identity in list(self._handles):
+        for path in list(self._handles):
             try:
-                self._detach(identity)
+                self._detach(path)
             except Exception:  # keep releasing the remaining devices
-                logger.exception("Failed to release %s", identity)
+                logger.exception("Failed to release %s", path)
         self._recorder = None
         for key in list(self._selector.get_map().values()):
             if key.data[0] == KIND_CLIENT:
@@ -230,8 +253,8 @@ class EngineServer:
             if not self._reply(conn, self.handle_line(line)):
                 return
 
-    def _read_device(self, _fileobj: Any, identity: str) -> None:
-        handle = self._handles.get(identity)
+    def _read_device(self, _fileobj: Any, path: str) -> None:
+        handle = self._handles.get(path)
         if handle is None:
             return
         try:
@@ -240,11 +263,11 @@ class EngineServer:
             return
         except OSError as exc:  # unplugged
             logger.warning("Device %r lost: %s", handle.name, exc)
-            self._states[identity] = {"name": handle.name, "state": "disconnected", "error": str(exc)}
-            self._detach(identity)
+            self._node_states[path] = node_state(handle.identity, handle.name, STATE_DISCONNECTED, str(exc))
+            self._detach(path)
             return
         for event in events:
-            if self._recorder is not None and self._recorder.identity == identity:
+            if self._recorder is not None and self._recorder.identity == handle.identity:
                 self._recorder.handle(event)
             if handle.remapper is not None:
                 handle.remapper.handle(event)
@@ -277,8 +300,7 @@ class EngineServer:
 
     def _op_list_devices(self, _args: dict) -> dict:
         report = self._check_permissions()
-        listed = [{"identity": e.identity, "path": e.path, "name": e.name, "has_keys": e.has_keys,
-                   "state": self._states.get(e.identity, {}).get("state")} for e in self._discover()]
+        listed = device_rows(self._discover(), self._states)
         permissions = {"uinput_ok": report.uinput_ok, "unreadable_inputs": list(report.unreadable_inputs)}
         return {"devices": listed, "permissions": permissions}
 
@@ -292,25 +314,37 @@ class EngineServer:
             raise CommandError("record_start needs a string 'identity'")
         if self._recorder is not None:
             raise CommandError(f"already recording {self._recorder.identity}")
-        if identity not in self._handles:
-            self._open_for_recording(identity)
+        self._open_for_recording(identity)
+        blocked = self._refuse_foreign_grab(identity)
         self._recorder = self._recorder_factory(identity)
-        return {"identity": identity}
+        return {"identity": identity, **({"blocked_nodes": blocked} if blocked else {})}
 
     def _open_for_recording(self, identity: str) -> None:
-        entry = next((e for e in self._discover() if e.identity == identity), None)
-        if entry is None:
+        """Attach every node of ``identity`` not open yet; fail only when none is usable."""
+        entries = [e for e in self._discover() if e.identity == identity]
+        if not entries:
             raise CommandError(f"device not found: {identity}")
-        try:
-            self._attach(entry)  # not grabbed: recording only listens
-        except OSError as exc:
-            raise CommandError(f"cannot open {entry.path}: {exc}") from exc
+        attach_missing(entries, self._handles, self._attach)  # not grabbed: recording only listens
+        if not paths_of(self._handles, identity):
+            raise CommandError(f"cannot open any node of {identity}; see the engine log")
+
+    def _refuse_foreign_grab(self, identity: str) -> int:
+        """Probe nodes we don't grab: all busy -> close them and refuse; else return the busy count."""
+        probed, busy = probe_nodes(self._handles, identity, self._probe_grab)
+        if probed and busy == probed and not engine_grabs(self._handles, identity):
+            for path in paths_of(self._handles, identity):
+                self._release_if_unused(path)
+            raise CommandError(MSG_GRABBED_EXCLUSIVELY)
+        if busy:
+            logger.warning("Recording %s: %d of %d node(s) grabbed by another program", identity, busy, probed)
+        return busy
 
     def _op_record_stop(self, _args: dict) -> dict:
         recorder, self._recorder = self._recorder, None
         if recorder is None:
             raise CommandError("not recording")
-        self._release_if_unused(recorder.identity)
+        for path in paths_of(self._handles, recorder.identity):
+            self._release_if_unused(path)
         return {"identity": recorder.identity, "events": recorder.stop(), "truncated": recorder.truncated}
 
     # -- devices ---------------------------------------------------------------
@@ -318,78 +352,49 @@ class EngineServer:
     def reload(self) -> None:
         """Re-read macros.json, stop every remapper and rebuild from scratch."""
         config, self.config_error = self._load_config()
-        for identity in list(self._handles):
-            self._stop_remapper(identity)
-        self._states.clear()
-        wanted = {entry.identity: entry for entry in config.devices if entry.enabled_macros()}
-        if not wanted:
-            return
-        for entry in self._discover():
-            if entry.identity in wanted:
-                self._start_remapper(entry, wanted[entry.identity].enabled_macros())
+        for handle in list(self._handles.values()):
+            if handle.remapper is not None:
+                handle.remapper.stop()
+                handle.remapper = None
+            self._release_if_unused(handle.path)
+        self._node_states.clear()
+        for entry, macros in wanted_entries(config.devices, self._discover):
+            self._start_remapper(entry, macros)
 
     def _attach(self, entry: Any) -> DeviceHandle:
-        device = self._open_device(entry.path)
-        try:
-            self._selector.register(device, selectors.EVENT_READ, (KIND_DEVICE, entry.identity))
-        except (OSError, ValueError):
-            device.close()
-            raise
-        handle = DeviceHandle(entry.identity, entry.name, device)
-        self._handles[entry.identity] = handle
+        handle = open_handle(entry, self._open_device, self._selector, (KIND_DEVICE, entry.path))
+        self._handles[entry.path] = handle
         return handle
 
-    def _detach(self, identity: str) -> None:
-        handle = self._handles.pop(identity, None)
-        if handle is None:
-            return
-        if handle.remapper is not None:
-            handle.remapper.stop()
-        try:
-            self._selector.unregister(handle.device)
-        except (KeyError, ValueError, OSError) as exc:
-            logger.debug("Unregister of %s failed: %s", identity, exc)
-        try:
-            handle.device.close()
-        except OSError as exc:
-            logger.warning("Closing %r failed: %s", handle.name, exc)
+    def _detach(self, path: str) -> None:
+        handle = self._handles.pop(path, None)
+        if handle is not None:
+            close_handle(handle, self._selector)
 
-    def _release_if_unused(self, identity: str) -> None:
-        handle = self._handles.get(identity)
+    def _release_if_unused(self, path: str) -> None:
+        handle = self._handles.get(path)
         if handle is None:
             return
         remapping = handle.remapping
-        recording = self._recorder is not None and self._recorder.identity == identity
+        recording = self._recorder is not None and self._recorder.identity == handle.identity
         if not remapping and not recording:
-            self._detach(identity)
-
-    def _stop_remapper(self, identity: str) -> None:
-        handle = self._handles[identity]
-        if handle.remapper is not None:
-            handle.remapper.stop()
-            handle.remapper = None
-        self._release_if_unused(identity)
-
-    def _record_state(self, identity: str, name: str, remapper: Any) -> None:
-        self._states[identity] = {"name": name, "state": remapper.state, "error": remapper.error}
+            self._detach(path)
 
     def _settle(self, handle: DeviceHandle) -> None:
         """Retry a deferred grab, record the remapper state, close the device if unused."""
         handle.retry_grab()
-        self._record_state(handle.identity, handle.name, handle.remapper)
-        self._release_if_unused(handle.identity)
+        self._node_states[handle.path] = remapper_state(handle)
+        self._release_if_unused(handle.path)
 
     def _start_remapper(self, entry: Any, macros: list) -> None:
-        existing = self._handles.get(entry.identity)
-        if existing is not None and existing.remapper is not None:
-            return  # duplicate node for the same identity
+        """Remap one node; nodes without any trigger end up inactive and closed."""
         try:
-            handle = existing or self._attach(entry)
+            handle = self._handles.get(entry.path) or self._attach(entry)
         except OSError as exc:
-            self._states[entry.identity] = {"name": entry.name, "state": state_for_error(exc), "error": str(exc)}
+            self._node_states[entry.path] = node_state(entry.identity, entry.name, state_for_error(exc), str(exc))
             logger.warning("Cannot open %s: %s", entry.path, exc)
             return
         handle.remapper = self._remapper_factory(handle.device, macros)
         handle.remapper.start()
-        self._record_state(entry.identity, entry.name, handle.remapper)
-        self._release_if_unused(entry.identity)
+        self._node_states[handle.path] = remapper_state(handle)
+        self._release_if_unused(entry.path)

@@ -8,9 +8,13 @@ from typing import Any
 
 @dataclass
 class DeviceHandle:
-    """An opened device plus the remapper using it (if any)."""
+    """An opened device node plus the remapper using it (if any).
+
+    ``path`` is the event node; several nodes may share one ``identity``.
+    """
 
     identity: str
+    path: str
     name: str
     device: Any
     remapper: Any = None

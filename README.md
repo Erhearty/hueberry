@@ -114,7 +114,8 @@ grabs a device that has enabled macros, re-emits all its other events through a
 virtual device (named `hueberry-virtual:<device name>`) and plays a macro when
 its trigger is pressed. Macros are stored in `~/.config/hueberry/macros.json`
 (or `$XDG_CONFIG_HOME/hueberry/macros.json`); an unreadable file is moved aside
-to `macros.json.bak`.
+to `macros.json.bak`. While recording a macro, press Pause (or the *Stop*
+button) to finish; the Pause key itself is not recorded.
 
 ### Requirements
 
@@ -166,6 +167,27 @@ to `macros.json.bak`.
 - Macro steps are key/button presses, releases, taps and delays only. Running
   shell commands is intentionally unsupported, and a `macros.json` containing
   such steps is rejected.
+
+### Repeat modes
+
+Each macro has a repeat mode, chosen in the macro editor's *Repeat* row and
+shown as a badge (*Once*, *×N*, *∞ Toggle*) in the Macros screen's list. It is
+stored in `macros.json` as `repeat_mode` and `repeat_count` (older files
+without these fields play once):
+
+- **once** (default): one press plays the steps once. Pressing the trigger
+  again while it still plays is ignored.
+- **times**: one press plays the steps `repeat_count` times in a row. The count
+  must be between 1 and 1000.
+- **toggle**: one press starts playing the steps in a loop, and the loop runs
+  until it is stopped.
+
+Pressing the same trigger again while a *toggle* or *times* macro plays stops
+it, and any keys it still holds are released. A running loop also stops when
+the macro engine reloads (for example after you save macros) or when the device
+is released. While one macro plays, the triggers of other macros on the same
+input node of the device are ignored (a device with several nodes, e.g. a
+mouse with a keyboard interface, can play one macro per node at once).
 
 ## Development and tests
 

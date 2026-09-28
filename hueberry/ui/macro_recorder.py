@@ -7,6 +7,8 @@ device are seen even on Wayland. In capture mode the first pressed key or
 button becomes :attr:`RecorderDialog.captured` (used to pick a trigger);
 otherwise the recording is turned into steps (:attr:`RecorderDialog.steps`).
 Engine calls go through ``worker.run_async`` so tests can make them synchronous.
+A recording is finished with the Stop button or the Pause key; the trailing
+Pause events themselves are not recorded. Space and Enter never stop it.
 """
 
 import logging
@@ -24,15 +26,20 @@ RECORD_TITLE = "Record macro"
 CAPTURE_TITLE = "Capture trigger"
 START_TEXT = "&Start recording"
 STOP_TEXT = "S&top"
-IDLE_RECORD_TEXT = "Press Start, perform the keys and buttons of the macro, then press Stop."
-IDLE_CAPTURE_TEXT = "Press Start, press the key or button that should trigger the macro, then Stop."
+STOP_TOOLTIP = "Stop (Pause)"
+IDLE_RECORD_TEXT = ("Press Start, perform the keys and buttons of the macro, "
+                    "then press Stop or the Pause key.")
+IDLE_CAPTURE_TEXT = ("Press Start, press the key or button that should trigger the macro, "
+                     "then press Stop or the Pause key.")
 STARTING_TEXT = "Starting\u2026"
-RECORDING_TEXT = "Recording\u2026 press Stop when done."
+RECORDING_TEXT = "Recording\u2026 press Stop or the Pause key when done."
 STOPPING_TEXT = "Stopping\u2026"
 NOTHING_RECORDED_TEXT = "Nothing was recorded; try again."
 NO_KEY_TEXT = "No key or button was pressed; try again."
 TRUNCATED_TEXT = "The recording was cut off at the size limit."
 EVENT_CODE, EVENT_VALUE = 0, 1
+STOP_KEY = Qt.Key.Key_Pause  # Qt key that stops a running recording
+STOP_KEY_CODE = "KEY_PAUSE"  # the same key as recorded by the engine
 
 
 def first_pressed(events: list) -> str | None:
@@ -42,6 +49,18 @@ def first_pressed(events: list) -> str | None:
             if keycodes.is_valid_code(event[EVENT_CODE]):
                 return event[EVENT_CODE]
     return None
+
+
+def strip_stop_key(events: list) -> list:
+    """Drop the trailing Pause events (press, repeat, release) that stopped the recording.
+
+    Everything up to and including the last non-Pause event is kept, so a Pause
+    in the middle of the recording stays.
+    """
+    end = len(events)
+    while end and len(events[end - 1]) > EVENT_CODE and events[end - 1][EVENT_CODE] == STOP_KEY_CODE:
+        end -= 1
+    return list(events[:end])
 
 
 class RecorderDialog(QDialog):
@@ -61,18 +80,27 @@ class RecorderDialog(QDialog):
         self.truncated = False
         self.setWindowTitle(CAPTURE_TITLE if capture else RECORD_TITLE)
         self.status_label = QLabel(IDLE_CAPTURE_TEXT if capture else IDLE_RECORD_TEXT, self)
-        self.status_label.setWordWrap(True)
-        self.status_label.setAccessibleName("Recording status")
-        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByKeyboard)
         self.start_button = QPushButton(START_TEXT, self)
         theme.set_role(self.start_button, "primary")
         self.stop_button = QPushButton(STOP_TEXT, self)
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel, self)
+        self._configure_widgets()
         self._build_layout()
         self.start_button.clicked.connect(self.start)
         self.stop_button.clicked.connect(self.stop)
         self.buttons.rejected.connect(self.reject)
         self._set_buttons(idle=True)
+
+    def _configure_widgets(self) -> None:
+        """Label and button settings; no button is (auto)default so Enter/Space never stop."""
+        self.status_label.setWordWrap(True)
+        self.status_label.setAccessibleName("Recording status")
+        self.status_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByKeyboard)
+        self.status_label.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.stop_button.setToolTip(STOP_TOOLTIP)
+        for button in (self.start_button, self.stop_button, *self.buttons.buttons()):
+            button.setAutoDefault(False)
+            button.setDefault(False)
 
     def _build_layout(self) -> None:
         row = QHBoxLayout()
@@ -114,12 +142,13 @@ class RecorderDialog(QDialog):
         self._recording = True
         self._set_buttons(recording=True)
         self._show(RECORDING_TEXT)
-        self.stop_button.setFocus()
+        self.status_label.setFocus()  # not a button: Space/Enter must not stop the recording
 
     @worker.ignore_deleted
     def _on_stopped(self, result: Any) -> None:
         self._recording = False
         events = result.get("events", []) if isinstance(result, dict) else []
+        events = strip_stop_key(events)
         self.truncated = bool(isinstance(result, dict) and result.get("truncated"))
         if self._capture:
             self.captured = first_pressed(events)
@@ -140,6 +169,18 @@ class RecorderDialog(QDialog):
         self._recording = False
         self._set_buttons(idle=True)
         self._show(f"Recording failed: {message}")
+
+    def keyPressEvent(self, event: Any) -> None:
+        """Stop a running recording on the Pause key; other keys get the default handling.
+
+        Ignored while a stop is already pending (stop() disables the Stop button).
+        """
+        stoppable = self._recording and self.stop_button.isEnabled()
+        if stoppable and event.key() == STOP_KEY and not event.isAutoRepeat():
+            self.stop()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     def reject(self) -> None:
         """Cancel; a running recording is stopped in the background and discarded."""
