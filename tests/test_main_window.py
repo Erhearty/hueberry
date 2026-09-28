@@ -10,13 +10,17 @@ from PyQt6.QtWidgets import QListWidget, QSplitter
 import hueberry.app as app_module
 from hueberry.backend import animator
 from hueberry.backend.daemon import DaemonService
-from hueberry.ui import worker
+from hueberry.settings import Settings
+from hueberry.sysmon.config import SysmonConfig
+from hueberry.ui import sysmon_sections, sysmon_wiring, worker
 from hueberry.ui.main_window import MainWindow
+from hueberry.ui.tray import TrayController
 
 MOUSE_SERIAL = "MOUSE0001"
 KEYBOARD_SERIAL = "KBD0001"
 MOUSE_CAPS = ("dpi", "poll_rate", "lighting", "lighting_static")
 KEYBOARD_CAPS = ("lighting", "lighting_static")
+SYSMON_START_ERROR = "waybar not found"
 
 
 def _run_sync(fn, on_done=None, on_error=None):
@@ -474,3 +478,137 @@ def test_tray_toggle_shows_and_hides(window, qtbot):
     assert win.isVisible()
     tray.toggle_window_requested.emit()
     assert not win.isVisible()
+
+
+class FakeSysmon(QObject):
+    """Stands in for SysmonController; records start/stop and emits ``state_changed``."""
+
+    state_changed = pyqtSignal(bool)
+
+    def __init__(self):
+        super().__init__()
+        self.config = SysmonConfig()
+        self.running = False
+        self.start_ok = True
+        self.last_error = None
+        self.calls = []
+
+    def is_running(self):
+        return self.running
+
+    def start(self):
+        self.calls.append("start")
+        if not self.start_ok:
+            self.last_error = SYSMON_START_ERROR
+            return False
+        self.running = True
+        self.state_changed.emit(True)
+        return True
+
+    def stop(self):
+        self.calls.append("stop")
+        self.running = False
+        self.state_changed.emit(False)
+
+    def apply(self, cfg):
+        self.config = cfg
+        return []
+
+
+def _real_tray():
+    """A TrayController without a system tray and with a no-op autostart."""
+    return TrayController(Settings(), available=False, is_autostart_enabled=lambda: False,
+                          set_autostart=lambda _enabled: None)
+
+
+@pytest.fixture
+def sysmon_window(window, qtbot, monkeypatch):
+    monkeypatch.setattr(sysmon_sections, "detect_disks", tuple)
+    monkeypatch.setattr(sysmon_sections, "detect_gpu_cards", list)
+    _win, service = window
+    controller = FakeSysmon()
+    tray = _real_tray()
+    win = MainWindow(service, tray=tray, sysmon=controller)
+    qtbot.addWidget(win)
+    return win, controller, tray
+
+
+def test_no_sysmon_page_without_controller(window):
+    win, _service = window
+    assert win.sysmon_page is None
+    assert win.sysmon_nav is None
+    win.show_sysmon()
+    assert all(action.shortcut().toString() != sysmon_wiring.SYSMON_SHORTCUT
+               for action in win.actions())
+
+
+def test_sysmon_page_opens_and_returns_to_previous_page(sysmon_window):
+    win, _controller, _tray = sysmon_window
+    _connect(win)
+    _card(win, KEYBOARD_SERIAL).click()
+    nav = win.sysmon_nav
+    assert nav.action.shortcut().toString() == "Ctrl+Shift+Y"
+    nav.action.trigger()
+    assert win.stack.currentWidget() is win.sysmon_page
+    win.sysmon_page.back_button.click()
+    assert win.stack.currentWidget() is win.device_page
+    win.device_page.back_button.click()
+    nav.button.click()
+    assert win.stack.currentWidget() is win.sysmon_page
+    win.sysmon_page.back_requested.emit()
+    assert win.stack.currentWidget() is win.home_page
+
+
+def test_reload_stays_on_sysmon_page(sysmon_window):
+    win, _controller, _tray = sysmon_window
+    _connect(win)
+    win.show_sysmon()
+    win.reload()
+    assert win.stack.currentWidget() is win.sysmon_page
+
+
+def test_sysmon_bind_key_opens_macros_and_status_reaches_bar(sysmon_window):
+    win, _controller, _tray = sysmon_window
+    win.show_sysmon()
+    win.sysmon_page.bind_key_requested.emit()
+    assert win.stack.currentWidget() is win.macros_page
+    win.sysmon_page.status.emit("sysmon applied")
+    assert win.statusBar().currentMessage() == "sysmon applied"
+
+
+def test_tray_sysmon_toggle_starts_and_stops(sysmon_window):
+    _win, controller, tray = sysmon_window
+    assert not tray.sysmon_action.isChecked()
+    tray.sysmon_action.setChecked(True)
+    assert controller.calls == ["start"]
+    assert controller.running
+    tray.sysmon_action.setChecked(False)
+    assert controller.calls == ["start", "stop"]
+    assert not controller.running
+
+
+def test_controller_state_updates_tray_without_reemitting(sysmon_window, qtbot):
+    _win, controller, tray = sysmon_window
+    with qtbot.assertNotEmitted(tray.sysmon_toggled):
+        controller.state_changed.emit(True)
+    assert tray.sysmon_action.isChecked()
+    assert controller.calls == []
+
+
+def test_tray_failed_start_unchecks_and_reports(sysmon_window):
+    win, controller, tray = sysmon_window
+    controller.start_ok = False
+    tray.sysmon_action.setChecked(True)
+    assert not tray.sysmon_action.isChecked()
+    assert SYSMON_START_ERROR in win.statusBar().currentMessage()
+
+
+def test_connect_tray_initialises_from_controller(qtbot, tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    controller = FakeSysmon()
+    controller.running = True
+    tray = _real_tray()
+    with qtbot.assertNotEmitted(tray.sysmon_toggled):
+        sysmon_wiring.connect_tray(tray, controller)
+    assert tray.sysmon_action.isChecked()
+    assert controller.calls == []

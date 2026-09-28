@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 from hueberry.backend import animator, lighting_state
 from hueberry.backend.daemon import DaemonService
 from hueberry.backend.devices import DeviceInfo, describe_device
-from hueberry.ui import worker
+from hueberry.ui import sysmon_wiring, worker
 from hueberry.ui.app_header import AppHeader
 from hueberry.ui.daemon_panel import DaemonPanel
 from hueberry.ui.daemon_status_bar import DaemonStatusBar
@@ -62,11 +62,12 @@ class MainWindow(QMainWindow):
     quit_requested = pyqtSignal()
 
     def __init__(self, service: DaemonService, engine: Any = None, tray: Any = None,
-                 parent: QWidget | None = None) -> None:
+                 parent: QWidget | None = None, *, sysmon: Any = None) -> None:
         super().__init__(parent)
         self._service = service
         self._engine = engine
         self._tray = tray
+        self._sysmon = sysmon  # SysmonController; None: no Sysmon page, nav or action
         self._entries: list[tuple[Any, DeviceInfo]] = []
         self._last_serial: str | None = None  # last opened device, kept across reloads
         self._current_serial: str | None = None  # selected device, if it is present
@@ -85,6 +86,7 @@ class MainWindow(QMainWindow):
         self.header.add_trailing(self.daemon_bar)
         self.setMenuWidget(self.header)
         self._connect_signals()
+        self.sysmon_nav = sysmon_wiring.connect_window(self, self._sysmon, self._tray)
         self.reload()
 
     # -- construction --------------------------------------------------------
@@ -104,6 +106,7 @@ class MainWindow(QMainWindow):
         for page in (self.home_page, self.device_page, self.empty_page, self.macros_page,
                      self.presets_page):
             self.stack.addWidget(page)
+        self.sysmon_page = sysmon_wiring.add_page(self.stack, self._sysmon)
         self.setCentralWidget(self.stack)
 
     def _build_daemon_dialog(self) -> None:
@@ -219,6 +222,11 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.presets_page)
         self.presets_page.preset_list.setFocus()
 
+    def show_sysmon(self) -> None:
+        """Open the System monitor page (no-op without a sysmon controller)."""
+        if self.sysmon_nav is not None:
+            self.sysmon_nav.show_page()
+
     def start_engine(self) -> None:
         """Start the macro engine in the background (no-op without an engine)."""
         self.macros_page.start_engine()
@@ -284,8 +292,9 @@ class MainWindow(QMainWindow):
         self._entries = [(dev, describe_device(dev)) for dev in devices]
         self.home_page.set_devices([info for _dev, info in self._entries])
         self.presets_page.set_devices(self._entries)
-        if self.stack.currentWidget() in (self.macros_page, self.presets_page):
-            return  # stay on the Macros page; the grid is updated for later
+        stay_on = (self.macros_page, self.presets_page, self.sysmon_page)
+        if self.stack.currentWidget() in stay_on:
+            return  # stay on that page; the grid is updated for later
         if not self._entries:
             self._show_empty()
             return
