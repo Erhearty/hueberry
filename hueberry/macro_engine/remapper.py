@@ -21,6 +21,7 @@ from typing import Any, Callable, Iterable
 from hueberry.macro_engine.devices import VIRTUAL_PREFIX
 from hueberry.macro_engine.player import Player
 from hueberry.macros import keycodes
+from hueberry.macros.model import REPEAT_TIMES, REPEAT_TOGGLE
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ STATE_ERROR = "error"
 STATE_STOPPED = "stopped"
 UINPUT_MAX_NAME_LENGTH = 79  # UINPUT_MAX_NAME_SIZE (80) minus the terminating NUL
 PERMISSION_ERRNOS = frozenset({errno.EACCES, errno.EPERM})
+STOPPABLE_MODES = (REPEAT_TOGGLE, REPEAT_TIMES)  # a re-press of the trigger stops these
 
 
 def clone_uinput(dev: Any, name: str) -> Any:
@@ -62,7 +64,13 @@ class DeviceRemapper:
     """Owns the grab and uinput clone of one device while it has enabled macros.
 
     ``state`` is one of the STATE_* constants; ``busy`` usually means another
-    program (e.g. OpenRazer's macro mode) already grabbed the device.
+    program (e.g. OpenRazer's macro mode) already grabbed the device. Only
+    triggers this node can emit (its EV_KEY capabilities) are armed: one
+    physical device spans several nodes, and a node with none of the triggers
+    stays ``inactive`` and is never cloned or grabbed.
+
+    A trigger press plays its macro with the macro's repeat mode; pressing the
+    same trigger again while a toggle or N-times macro plays stops it.
     """
 
     def __init__(
@@ -79,7 +87,7 @@ class DeviceRemapper:
         self._uinput_factory = uinput_factory
         self._player_factory = player_factory
         self._ev_key = ecodes.EV_KEY
-        self._triggers: dict[int, list] = {}
+        self._triggers: dict[int, Any] = {}
         self._clone: Any = None
         self._player: Any = None
         self._grabbed = False
@@ -96,12 +104,14 @@ class DeviceRemapper:
         """True while the clone exists but the grab waits for held keys to be released."""
         return self.state == STATE_WAITING
 
-    def _resolve_triggers(self) -> dict[int, list]:
+    def _resolve_triggers(self) -> dict[int, Any]:
+        """Trigger code -> enabled Macro, for codes this node reports in its EV_KEY capabilities."""
+        emitted = set(self.dev.capabilities().get(self._ev_key, []))
         triggers = {}
         for macro in self._macros:
             code = keycodes.code_for(macro.trigger) if macro.enabled else None
-            if code is not None:
-                triggers[code] = list(macro.steps)
+            if code is not None and code in emitted:
+                triggers[code] = macro
         return triggers
 
     def _set_failure(self, state: str, message: str) -> bool:
@@ -157,12 +167,12 @@ class DeviceRemapper:
             pass
 
     def handle(self, event: Any) -> None:
-        """Swallow trigger events (playing on press); forward everything else."""
+        """Swallow trigger events (acting on press, see ``_on_trigger``); forward everything else."""
         if self.state != STATE_ACTIVE:
             return
         if event.type == self._ev_key and event.code in self._triggers:
             if event.value == keycodes.VALUE_PRESS:
-                self._player.play(self._triggers[event.code])
+                self._on_trigger(event.code)
             return
         try:
             with self._player.lock:
@@ -171,6 +181,18 @@ class DeviceRemapper:
             self._player.stop()
             self._release()
             self._set_failure(STATE_ERROR, f"uinput write failed, device released: {exc}")
+
+    def _on_trigger(self, code: int) -> None:
+        """Stop this trigger's running toggle/N-times loop, else play its macro.
+
+        The player ignores the play while another (or a once) macro still runs.
+        """
+        macro = self._triggers[code]
+        player = self._player
+        if player.playing and player.current == code and macro.repeat_mode in STOPPABLE_MODES:
+            player.stop()
+            return
+        player.play(list(macro.steps), macro.iterations(), code)
 
     def _close_clone(self) -> None:
         clone, self._clone = self._clone, None

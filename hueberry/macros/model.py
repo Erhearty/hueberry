@@ -8,6 +8,8 @@ load, not merely ignored). Limits bound how long a macro can keep synthetic
 input flowing and how much a hostile or corrupt file can make us allocate.
 """
 
+import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -24,10 +26,29 @@ ACTION_PRESS = "press"
 ACTION_RELEASE = "release"
 ACTION_TAP = "tap"
 ACTIONS = (ACTION_PRESS, ACTION_RELEASE, ACTION_TAP)
+REPEAT_ONCE = "once"
+REPEAT_TIMES = "times"
+REPEAT_TOGGLE = "toggle"  # loop until the trigger is pressed again
+REPEAT_MODES = (REPEAT_ONCE, REPEAT_TIMES, REPEAT_TOGGLE)
+MIN_REPEAT_COUNT = 1
+MAX_REPEAT_COUNT = 1000
+INPUT_NODE_SUFFIX_RE = re.compile(r"/input\d+$")  # per-interface part of a USB phys path
+
+logger = logging.getLogger(__name__)
 
 
 class ModelError(ValueError):
     """Macro data that is malformed or violates a limit."""
+
+
+def canonical_identity(identity: str) -> str:
+    """One identity per physical device: drop a trailing ``/input<N>``.
+
+    A USB device exposes one evdev node per interface (``.../input0``,
+    ``.../input1``, ...); they are the same physical device, so macros and
+    recordings address them together. Idempotent.
+    """
+    return INPUT_NODE_SUFFIX_RE.sub("", identity, count=1)
 
 
 def _field(data: Any, key: str, kind: type) -> Any:
@@ -38,6 +59,18 @@ def _field(data: Any, key: str, kind: type) -> Any:
     if not isinstance(value, kind) or (kind is int and isinstance(value, bool)):
         raise ModelError(f"{key!r} must be {kind.__name__}, got {type(value).__name__}")
     return value
+
+
+def _optional(data: Any, key: str, kind: type, default: Any) -> Any:
+    """Like ``_field`` but a missing ``key`` yields ``default`` (older files lack it).
+
+    A present value of the wrong type still raises ModelError; bools are not ints.
+    """
+    if not isinstance(data, dict):
+        raise ModelError(f"expected an object holding {key!r}")
+    if key not in data:
+        return default
+    return _field(data, key, kind)
 
 
 @dataclass(frozen=True)
@@ -100,13 +133,24 @@ class Macro:
     enabled: bool
     trigger: str
     steps: list = field(default_factory=list)
+    repeat_mode: str = REPEAT_ONCE
+    repeat_count: int = 1
 
     def to_dict(self) -> dict:
         """JSON-ready form."""
         return {
             "id": self.id, "name": self.name, "enabled": self.enabled,
             "trigger": self.trigger, "steps": [step.to_dict() for step in self.steps],
+            "repeat_mode": self.repeat_mode, "repeat_count": self.repeat_count,
         }
+
+    def iterations(self) -> int | None:
+        """How often the steps run per trigger press: 1, ``repeat_count``, or None (until stopped)."""
+        if self.repeat_mode == REPEAT_TOGGLE:
+            return None
+        if self.repeat_mode == REPEAT_TIMES:
+            return self.repeat_count
+        return 1
 
     @classmethod
     def from_dict(cls, data: Any) -> "Macro":
@@ -118,7 +162,20 @@ class Macro:
             id=_field(data, "id", str), name=_field(data, "name", str),
             enabled=_field(data, "enabled", bool), trigger=_field(data, "trigger", str),
             steps=[step_from_dict(step) for step in steps],
+            repeat_mode=_optional(data, "repeat_mode", str, REPEAT_ONCE),
+            repeat_count=_optional(data, "repeat_count", int, 1),
         )
+
+    def _repeat_problems(self) -> list[str]:
+        """Unknown repeat mode, or a count outside the range for REPEAT_TIMES."""
+        if self.repeat_mode not in REPEAT_MODES:
+            return [f"unknown repeat mode {self.repeat_mode!r}"]
+        count = self.repeat_count
+        if self.repeat_mode == REPEAT_TIMES and (
+                not isinstance(count, int) or isinstance(count, bool)
+                or not MIN_REPEAT_COUNT <= count <= MAX_REPEAT_COUNT):
+            return [f"repeat count {count!r} outside {MIN_REPEAT_COUNT}..{MAX_REPEAT_COUNT}"]
+        return []
 
     def problems(self) -> list[str]:
         """Human-readable reasons this macro is invalid ([] when valid)."""
@@ -131,6 +188,7 @@ class Macro:
             found.append(f"unknown trigger {self.trigger!r}")
         if len(self.steps) > MAX_STEPS:
             found.append(f"{len(self.steps)} steps, limit is {MAX_STEPS}")
+        found.extend(self._repeat_problems())
         for step in self.steps:
             if not isinstance(step, (KeyStep, DelayStep)):
                 found.append(f"unsupported step {step!r}")
@@ -177,6 +235,25 @@ class DeviceMacros:
         return [f"device {self.name or self.identity!r}: {problem}" for problem in found]
 
 
+def _merge_into(existing: DeviceMacros, device: DeviceMacros) -> None:
+    """Append ``device``'s macros to ``existing`` (same canonical identity).
+
+    A macro whose trigger or id ``existing`` already holds is skipped with a
+    warning; the check is against ``existing`` as it was before this merge, so
+    duplicates inside ``device`` itself are kept and reported by ``problems()``.
+    The first non-empty name wins.
+    """
+    triggers = {macro.trigger for macro in existing.macros}
+    ids = {macro.id for macro in existing.macros}
+    for macro in device.macros:
+        if macro.trigger in triggers or macro.id in ids:
+            logger.warning("Merging %r: skipped macro %r (trigger %r), trigger or id already bound",
+                           existing.identity, macro.id, macro.trigger)
+            continue
+        existing.macros.append(macro)
+    existing.name = existing.name or device.name
+
+
 @dataclass
 class MacroConfig:
     """The whole macro configuration, as stored in macros.json."""
@@ -193,8 +270,25 @@ class MacroConfig:
 
     @classmethod
     def from_dict(cls, data: Any) -> "MacroConfig":
-        """Parse the configuration; raises ModelError on wrong shapes."""
-        return cls(devices=[DeviceMacros.from_dict(item) for item in _field(data, "devices", list)])
+        """Parse the configuration; raises ModelError on wrong shapes.
+
+        Identities are canonicalised and entries that then collide (older files
+        keyed per ``/input<N>`` node) are merged (see ``_merge_into``): macros
+        concatenated in order, a later entry's macro skipped with a warning when
+        its trigger or id is already taken, first non-empty name kept. So one
+        conflicting old entry cannot invalidate the whole file; duplicates within
+        a single entry still surface through ``problems()``. Idempotent.
+        """
+        merged: dict[str, DeviceMacros] = {}
+        for item in _field(data, "devices", list):
+            device = DeviceMacros.from_dict(item)
+            device.identity = canonical_identity(device.identity)
+            existing = merged.get(device.identity)
+            if existing is None:
+                merged[device.identity] = device
+                continue
+            _merge_into(existing, device)
+        return cls(devices=list(merged.values()))
 
     def problems(self) -> list[str]:
         """Every validation problem across devices ([] when valid)."""

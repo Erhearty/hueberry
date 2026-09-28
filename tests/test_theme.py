@@ -31,6 +31,8 @@ TEXT_PAIRS = (
     (theme.TEXT, theme.HEADER_BG),
     (theme.TEXT_MUTED, theme.HEADER_BG),
     (theme.ERROR, theme.HEADER_BG),
+    (theme.ACCENT, theme.SURFACE_RAISED),  # chips and badges on a selected list row
+    (theme.ERROR, theme.SURFACE_RAISED),
 )
 HEX_LITERAL = re.compile(r"#[0-9a-fA-F]{3,8}\b")
 STYLESHEET_OPEN = 'STYLESHEET = f"""'
@@ -44,6 +46,9 @@ NEW_SELECTORS = (
     "QTabWidget::pane", 'QPushButton[role="nav"]', "QWidget#appHeader",
     'QLabel[role="brand"]', "QSlider::sub-page:horizontal", "QScrollBar:vertical",
     "QFrame#sectionCard", 'QLabel[role="section"]',
+    "QWidget#listRow", 'QWidget#listRow[selected="true"]', "QLabel#stateChip",
+    'QLabel#stateChip[state="active"]', 'QLabel#stateChip[state="error"]',
+    "QLabel#triggerChip", "QLabel#repeatBadge",
 )
 
 

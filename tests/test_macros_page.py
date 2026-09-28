@@ -11,72 +11,14 @@ from hueberry.backend import macro_engine as states
 from hueberry.backend.macro_engine import MacroEngineService
 from hueberry.macros import store
 from hueberry.macros.model import DeviceMacros, KeyStep, Macro, MacroConfig
-from hueberry.macros.protocol import EngineUnavailable
 from hueberry.ui import worker
 from hueberry.ui.macros_page import ENGINE_POLL_MS, MacrosPage, banner_text, state_label
-
-MOUSE = "1532:0084:Test Mouse:usb-1"
-KEYBOARD = "1532:0203:Test Keyboard:usb-2"
-OLD_PAD = "1532:0999:Old Pad:usb-3"
-ALL_OK = {"uinput_ok": True, "unreadable_inputs": []}
-
-
-def _run_sync(fn, on_done=None, on_error=None):
-    """Synchronous stand-in for worker.run_async."""
-    try:
-        result = fn()
-    except Exception as exc:
-        if on_error is not None:
-            on_error(str(exc))
-        return None
-    if on_done is not None:
-        on_done(result)
-    return None
-
-
-class FakeEngine:
-    """MacroEngineService stand-in."""
-
-    def __init__(self, state=states.STATE_RUNNING, permissions=None, error=None):
-        self.state = state
-        self.last_error = error
-        self.permissions = permissions if permissions is not None else dict(ALL_OK)
-        self.states = {MOUSE: "active", KEYBOARD: None}
-        self.config_error = None
-        self.fail = False
-        self.calls = []
-
-    def poll(self):
-        return self.state
-
-    def list_devices(self):
-        self.calls.append("list_devices")
-        if self.fail:
-            raise EngineUnavailable("gone")
-        devices = [{"identity": MOUSE, "name": "Test Mouse", "has_keys": True, "state": self.states[MOUSE]},
-                   {"identity": KEYBOARD, "name": "Test Keyboard", "has_keys": True,
-                    "state": self.states[KEYBOARD]},
-                   {"identity": "x", "name": "Lid switch", "has_keys": False, "state": None}]
-        return {"devices": devices, "permissions": self.permissions}
-
-    def status(self):
-        self.calls.append("status")
-        devices = [{"identity": MOUSE, "name": "Test Mouse", "state": self.states[MOUSE], "error": None}]
-        return {"devices": devices, "recording": None, "config_error": self.config_error}
-
-    def reload(self):
-        self.calls.append("reload")
-        return self.status()
-
-    def spawn(self):
-        self.calls.append("spawn")
-        self.state = states.STATE_STARTING
-        return True
-
-    def wait_ready(self):
-        self.calls.append("wait_ready")
-        self.state = states.STATE_RUNNING
-        return True
+from macros_page_helpers import MOUSE, OLD_PAD, FakeEngine
+from macros_page_helpers import add_macro as _add_macro
+from macros_page_helpers import device_texts as _device_texts
+from macros_page_helpers import make_page as _page
+from macros_page_helpers import run_sync as _run_sync
+from macros_page_helpers import select as _select
 
 
 @pytest.fixture(autouse=True)
@@ -84,35 +26,6 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.setattr(worker, "run_async", _run_sync)
     return tmp_path
-
-
-def _page(qtbot, engine):
-    page = MacrosPage(engine)
-    qtbot.addWidget(page)
-    page.refresh()
-    return page
-
-
-def _device_texts(page):
-    return [page.device_list.item(row).text() for row in range(page.device_list.count())]
-
-
-def _select(page, identity):
-    for row in range(page.device_list.count()):
-        if page.device_list.item(row).data(Qt.ItemDataRole.UserRole) == identity:
-            page.device_list.setCurrentRow(row)
-            return
-    raise AssertionError(identity)
-
-
-def _add_macro(page, trigger="BTN_SIDE"):
-    page.add_button.click()
-    editor = page.editor
-    editor.name_edit.setText("Copy")
-    editor.trigger_combo.setCurrentText(trigger)
-    editor.add_key_button.click()
-    editor.step_dialog.accept()
-    editor.accept()
 
 
 def test_state_labels():
@@ -126,11 +39,11 @@ def test_device_list_states(qtbot):
     engine = FakeEngine()
     store.save(MacroConfig([DeviceMacros(OLD_PAD, "Old Pad", [])]))
     page = _page(qtbot, engine)
-    assert _device_texts(page) == ["Old Pad \u2013 not connected", "Test Keyboard \u2013 idle",
-                                   "Test Mouse \u2013 grabbed"]
+    assert _device_texts(page) == ["Old Pad \u2013 not connected", "Test Keyboard (keyboard) \u2013 idle",
+                                   "Test Mouse (mouse) \u2013 grabbed"]
     engine.states[MOUSE] = "busy"
     page.refresh_button.click()
-    assert "Test Mouse \u2013 busy \u2013 used by another program" in _device_texts(page)
+    assert "Test Mouse (mouse) \u2013 busy \u2013 used by another program" in _device_texts(page)
 
 
 def test_banner_hidden_when_all_ok(qtbot):

@@ -18,6 +18,7 @@ from hueberry.macros import keycodes, model
 from hueberry.macros.model import DelayStep, KeyStep, Macro
 from hueberry.ui import layouts, theme
 from hueberry.ui.macro_recorder import RecorderDialog
+from hueberry.ui.macro_repeat import RepeatModeGroup
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +135,7 @@ class MacroEditorDialog(QDialog):
         self._build_fields(macro)
         self._build_step_buttons()
         self._build_layout()
+        self._set_tab_order()
         self._connect_signals()
         self._refresh_steps()
 
@@ -144,6 +146,7 @@ class MacroEditorDialog(QDialog):
         self.name_edit.setMaxLength(model.MAX_NAME_LENGTH)
         self.enabled_check = QCheckBox("E&nabled", self)
         self.enabled_check.setChecked(macro.enabled)
+        self._build_repeat(macro)
         self.trigger_combo = key_combo(self, macro.trigger, "Trigger")
         self.capture_button = QPushButton("&Capture\u2026", self)
         self.steps_list = QListWidget(self)
@@ -154,6 +157,14 @@ class MacroEditorDialog(QDialog):
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel, self)
         theme.set_role(self.buttons.button(QDialogButtonBox.StandardButton.Ok), "primary")
+
+    def _build_repeat(self, macro: Macro) -> None:
+        """Build the repeat-mode group and expose its controls as editor attributes."""
+        self.repeat_group = RepeatModeGroup(macro.repeat_mode, macro.repeat_count, self)
+        self.repeat_once_radio = self.repeat_group.once_radio
+        self.repeat_times_radio = self.repeat_group.times_radio
+        self.repeat_toggle_radio = self.repeat_group.toggle_radio
+        self.repeat_count_spin = self.repeat_group.count_spin
 
     def _build_step_buttons(self) -> None:
         labels = {"add_key": "Add &key\u2026", "add_delay": "Add &delay\u2026",
@@ -176,6 +187,7 @@ class MacroEditorDialog(QDialog):
         form.addRow("&Name:", self.name_edit)
         form.addRow("&Trigger:", trigger_row)
         form.addRow("", self.enabled_check)
+        form.addRow("Repeat:", self.repeat_group)
         side = QGridLayout()
         order = (self.add_key_button, self.add_delay_button, self.record_button, self.edit_button,
                  self.up_button, self.down_button, self.delete_button)
@@ -191,6 +203,18 @@ class MacroEditorDialog(QDialog):
         layout.addWidget(self.validation_label)
         layout.addWidget(self.buttons)
 
+    def _set_tab_order(self) -> None:
+        """Make Tab follow the visual order: fields, repeat group, steps, step buttons, OK/Cancel."""
+        ok = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
+        cancel = self.buttons.button(QDialogButtonBox.StandardButton.Cancel)
+        chain = [self.name_edit, self.trigger_combo, self.capture_button, self.enabled_check,
+                 self.repeat_once_radio, self.repeat_times_radio, self.repeat_count_spin,
+                 self.repeat_toggle_radio, self.steps_list, self.add_key_button,
+                 self.add_delay_button, self.record_button, self.edit_button, self.up_button,
+                 self.down_button, self.delete_button, ok, cancel]
+        for first, second in zip(chain, chain[1:]):
+            QWidget.setTabOrder(first, second)
+
     def _connect_signals(self) -> None:
         self.add_key_button.clicked.connect(lambda: self._open_step_dialog(KeyStep(DEFAULT_KEY), None))
         self.add_delay_button.clicked.connect(
@@ -205,6 +229,7 @@ class MacroEditorDialog(QDialog):
         self.steps_list.currentRowChanged.connect(lambda _row: self._update_buttons())
         self.name_edit.textChanged.connect(lambda _text: self._validate())
         self.trigger_combo.currentTextChanged.connect(lambda _text: self._validate())
+        self.repeat_group.changed.connect(self._validate)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
 
@@ -214,7 +239,8 @@ class MacroEditorDialog(QDialog):
         """The macro as currently edited."""
         return Macro(id=self._id, name=self.name_edit.text().strip(),
                      enabled=self.enabled_check.isChecked(),
-                     trigger=self.trigger_combo.currentText().strip(), steps=list(self._steps))
+                     trigger=self.trigger_combo.currentText().strip(), steps=list(self._steps),
+                     repeat_mode=self.repeat_group.mode(), repeat_count=self.repeat_group.count())
 
     def steps(self) -> list:
         """The current steps."""

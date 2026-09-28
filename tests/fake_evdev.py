@@ -119,10 +119,11 @@ class FakeInputDevice:
             raise OSError(existing.open_error, os.strerror(existing.open_error), path)
         existing.closed = False
         existing.open_count += 1
+        existing.live_opens += 1
         return existing
 
     def __init__(self, path, *, name="Fake Device", vendor=0x1532, product=0x0001,
-                 keys=(), phys="usb-fake/input0", uniq="") -> None:
+                 keys=(), phys="usb-fake/input0", uniq="", rel=None) -> None:
         if getattr(self, "_ready", False):
             return
         self._ready = True
@@ -132,6 +133,7 @@ class FakeInputDevice:
         self.phys = phys
         self.uniq = uniq
         self.keys = list(keys)
+        self.rel = None if rel is None else list(rel)
         self.grab_error: int | None = None
         self.open_error: int | None = None
         self.read_error: BaseException | None = None
@@ -140,16 +142,19 @@ class FakeInputDevice:
         self.grab_calls = 0
         self.ungrab_calls = 0
         self.open_count = 1
+        self.live_opens = 0  # reopens not closed yet; each real open is its own fd
         self.closed = False
         self._queue: list = []
         self._pipe: tuple[int, int] | None = None
         type(self).registry[path] = self
 
     def capabilities(self, verbose=False, absinfo=True) -> dict:
-        """Event types to codes; EV_KEY only when the device has keys."""
+        """Event types to codes; EV_KEY only when the device has keys, EV_REL only when ``rel`` was given."""
         caps = {EV_SYN: [SYN_REPORT]}
         if self.keys:
             caps[EV_KEY] = list(self.keys)
+        if self.rel is not None:
+            caps[EV_REL] = list(self.rel)
         return caps
 
     def grab(self) -> None:
@@ -210,7 +215,15 @@ class FakeInputDevice:
         return self._queue.pop(0) if self._queue else None
 
     def close(self) -> None:
-        """Mark closed and release the wake pipe."""
+        """Close one open; the last one marks closed and releases the wake pipe.
+
+        Like separate fds on the same node, closing a second open (e.g. a
+        discovery pass) leaves an engine-held open readable.
+        """
+        if self.live_opens > 1:
+            self.live_opens -= 1
+            return
+        self.live_opens = 0
         self.closed = True
         if self._pipe is not None:
             for fd in self._pipe:

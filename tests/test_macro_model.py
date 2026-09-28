@@ -10,17 +10,23 @@ import pytest
 from hueberry.macros import keycodes
 from hueberry.macros.model import (
     MAX_DELAY_MS,
+    MAX_REPEAT_COUNT,
     MAX_STEPS,
+    MIN_REPEAT_COUNT,
+    REPEAT_ONCE,
+    REPEAT_TIMES,
+    REPEAT_TOGGLE,
     DelayStep,
     DeviceMacros,
     KeyStep,
     Macro,
     MacroConfig,
     ModelError,
+    canonical_identity,
     step_from_dict,
 )
 
-IDENTITY = "1532:0084:Razer Mouse:usb-1/input0"
+IDENTITY = "1532:0084:Razer Mouse:usb-1"
 
 
 def _macro(macro_id="m1", trigger="BTN_SIDE", steps=None, enabled=True):
@@ -98,6 +104,56 @@ def test_duplicate_triggers_and_ids_are_rejected():
     assert doubled.problems()
 
 
+def test_canonical_identity_strips_one_input_suffix():
+    """Only a single trailing /input<digits> goes; the result is stable."""
+    assert canonical_identity(IDENTITY + "/input0") == IDENTITY
+    assert canonical_identity(IDENTITY + "/input12") == IDENTITY
+    assert canonical_identity(IDENTITY) == IDENTITY
+    assert canonical_identity("a:b:SN/input1/input2") == "a:b:SN/input1"
+    assert canonical_identity("a:b:usb-1/input0x") == "a:b:usb-1/input0x"
+    assert canonical_identity(canonical_identity(IDENTITY + "/input3")) == IDENTITY
+
+
+def test_old_per_node_entries_are_merged_on_load():
+    """Entries for /input0 and /input1 load as one device; macros concatenated, first name kept."""
+    first, second = _macro("m1", "BTN_SIDE"), _macro("m2", "BTN_EXTRA")
+    data = {"devices": [
+        DeviceMacros(IDENTITY + "/input0", "", [first]).to_dict(),
+        DeviceMacros(IDENTITY + "/input1", "Razer Mouse", [second]).to_dict(),
+        DeviceMacros(IDENTITY + "/input2", "Other name", []).to_dict(),
+    ]}
+    config = MacroConfig.from_dict(data)
+    assert config == MacroConfig([DeviceMacros(IDENTITY, "Razer Mouse", [first, second])])
+    config.validate()
+    assert MacroConfig.from_dict(config.to_dict()) == config
+
+
+def test_merge_conflicts_keep_the_first_macro(caplog):
+    """A trigger bound on two old nodes: the first macro is kept, the other skipped with a warning."""
+    first, clash, other = _macro("m1", "BTN_SIDE"), _macro("m2", "BTN_SIDE"), _macro("m3", "BTN_EXTRA")
+    data = {"devices": [
+        DeviceMacros(IDENTITY + "/input0", "Razer Mouse", [first]).to_dict(),
+        DeviceMacros(IDENTITY + "/input1", "Razer Mouse", [clash, other]).to_dict(),
+    ]}
+    with caplog.at_level("WARNING", logger="hueberry.macros.model"):
+        config = MacroConfig.from_dict(data)
+    assert config == MacroConfig([DeviceMacros(IDENTITY, "Razer Mouse", [first, other])])
+    assert config.problems() == []
+    (record,) = caplog.records
+    assert record.levelname == "WARNING" and IDENTITY in record.getMessage()
+    assert "'m2'" in record.getMessage() and "BTN_SIDE" in record.getMessage()
+    assert MacroConfig.from_dict(config.to_dict()) == config
+
+
+def test_duplicate_trigger_within_one_entry_still_surfaces():
+    """Duplicates inside a single entry are not merged away: validation still reports them."""
+    entry = DeviceMacros(IDENTITY + "/input0", "Razer Mouse", [_macro("m1", "BTN_SIDE"), _macro("m2", "BTN_SIDE")])
+    config = MacroConfig.from_dict({"devices": [entry.to_dict()]})
+    assert "BTN_SIDE" in " ".join(config.problems())
+    with pytest.raises(ModelError):
+        config.validate()
+
+
 def test_empty_id_is_rejected():
     """Macros need an id."""
     assert _config(_macro(macro_id="")).problems()
@@ -146,6 +202,68 @@ def test_events_to_steps_collapses_small_gaps():
         DelayStep(MAX_DELAY_MS),
         KeyStep("KEY_B", "release"),
     ]
+
+
+def test_repeat_fields_default_when_absent():
+    """An old macro dict without repeat keys loads as once / count 1."""
+    data = _macro().to_dict()
+    del data["repeat_mode"], data["repeat_count"]
+    macro = Macro.from_dict(data)
+    assert (macro.repeat_mode, macro.repeat_count) == (REPEAT_ONCE, 1)
+    assert macro == _macro()
+
+
+@pytest.mark.parametrize("mode, count", [(REPEAT_ONCE, 1), (REPEAT_TIMES, 7), (REPEAT_TOGGLE, 1)])
+def test_repeat_fields_round_trip(mode, count):
+    """Every repeat mode survives to_dict -> JSON -> from_dict and validates."""
+    macro = _macro()
+    macro.repeat_mode, macro.repeat_count = mode, count
+    restored = Macro.from_dict(json.loads(json.dumps(macro.to_dict())))
+    assert restored == macro and restored.to_dict()["repeat_mode"] == mode
+    assert not _config(restored).problems()
+
+
+@pytest.mark.parametrize("mode, count, needle", [
+    ("forever", 1, "forever"),
+    (REPEAT_TIMES, MIN_REPEAT_COUNT - 1, "repeat count"),
+    (REPEAT_TIMES, MAX_REPEAT_COUNT + 1, "repeat count"),
+])
+def test_invalid_repeat_is_reported(mode, count, needle):
+    """An unknown mode, or a times count outside MIN..MAX, is a validation problem."""
+    macro = _macro()
+    macro.repeat_mode, macro.repeat_count = mode, count
+    assert needle in " ".join(_config(macro).problems())
+    with pytest.raises(ModelError):
+        _config(macro).validate()
+
+
+def test_repeat_count_bounds_are_valid():
+    """MIN and MAX counts themselves are accepted for times."""
+    for count in (MIN_REPEAT_COUNT, MAX_REPEAT_COUNT):
+        macro = _macro()
+        macro.repeat_mode, macro.repeat_count = REPEAT_TIMES, count
+        assert not _config(macro).problems()
+
+
+@pytest.mark.parametrize("key, value", [("repeat_count", True), ("repeat_count", "3"), ("repeat_mode", 1)])
+def test_repeat_fields_wrong_type_rejected(key, value):
+    """A bool (or other wrong type) for a repeat field is refused on load."""
+    data = _macro().to_dict()
+    data[key] = value
+    with pytest.raises(ModelError, match=key):
+        Macro.from_dict(data)
+
+
+def test_iterations_per_mode():
+    """once -> 1, times -> repeat_count, toggle -> None (until stopped)."""
+    macro = _macro()
+    assert macro.iterations() == 1
+    macro.repeat_mode, macro.repeat_count = REPEAT_TIMES, 5
+    assert macro.iterations() == 5
+    macro.repeat_mode = REPEAT_TOGGLE
+    assert macro.iterations() is None
+    macro.repeat_mode, macro.repeat_count = REPEAT_ONCE, 9
+    assert macro.iterations() == 1
 
 
 def test_events_to_steps_custom_gap_and_cap():

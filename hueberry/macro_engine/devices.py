@@ -2,11 +2,14 @@
 # SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Input device discovery, stable identities and permission checks."""
 
+import errno
 import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable
+
+from hueberry.macros.model import canonical_identity
 
 logger = logging.getLogger(__name__)
 
@@ -14,6 +17,11 @@ VIRTUAL_PREFIX = "hueberry-virtual:"
 UINPUT_PATH = "/dev/uinput"
 INPUT_DIR = "/dev/input"
 EVENT_NODE_GLOB = "event*"
+KIND_MOUSE = "mouse"
+KIND_KEYBOARD = "keyboard"
+KIND_OTHER = "other"
+# phys suffix of a USB device's first interface, usually its main function.
+PRIMARY_INTERFACE_SUFFIX = "/input0"
 
 
 @dataclass(frozen=True)
@@ -24,6 +32,9 @@ class DeviceEntry:
     path: str
     name: str
     has_keys: bool
+    vendor: str = ""
+    kind: str = KIND_OTHER
+    primary: bool = False
 
 
 @dataclass(frozen=True)
@@ -38,10 +49,12 @@ def identity(dev: Any) -> str:
     """Identity that survives replugs and reboots (``/dev/input/eventN`` does not).
 
     ``uniq`` (serial) is preferred; ``phys`` (USB port path) distinguishes two
-    identical devices without serials.
+    identical devices without serials. The per-interface ``/input<N>`` suffix
+    is dropped (see ``canonical_identity``) so every evdev node of one
+    physical device shares one identity.
     """
     info = dev.info
-    return f"{info.vendor:04x}:{info.product:04x}:{dev.name}:{dev.uniq or dev.phys}"
+    return canonical_identity(f"{info.vendor:04x}:{info.product:04x}:{dev.name}:{dev.uniq or dev.phys}")
 
 
 def is_virtual(name: str) -> bool:
@@ -54,6 +67,43 @@ def has_keys(dev: Any) -> bool:
     from evdev import ecodes  # lazy: optional dependency
 
     return bool(dev.capabilities().get(ecodes.EV_KEY))
+
+
+def device_kind(dev: Any) -> str:
+    """What one node looks like from its capabilities.
+
+    ``mouse`` when it reports relative X motion and a left button,
+    otherwise ``keyboard`` when it has KEY_A, otherwise ``other``.
+    """
+    from evdev import ecodes  # lazy: optional dependency
+
+    caps = dev.capabilities()
+    keys = caps.get(ecodes.EV_KEY) or []
+    if ecodes.REL_X in (caps.get(ecodes.EV_REL) or []) and ecodes.BTN_LEFT in keys:
+        return KIND_MOUSE
+    if ecodes.KEY_A in keys:
+        return KIND_KEYBOARD
+    return KIND_OTHER
+
+
+def probe_foreign_grab(dev: Any) -> bool:
+    """True when another program (keyd, OpenRazer macro mode) holds an exclusive grab.
+
+    A grabbed node delivers nothing to other readers, so recording it would
+    silently stay empty. Probes with a momentary grab()+ungrab(); skipped
+    (False) while keys are held, since a grab then would hide their release.
+    Errors other than EBUSY are logged and treated as not grabbed.
+    """
+    try:
+        if dev.active_keys():
+            return False
+        dev.grab()
+        dev.ungrab()
+    except OSError as exc:
+        if exc.errno == errno.EBUSY:
+            return True
+        logger.warning("Grab probe of %r failed: %s", dev.name, exc)
+    return False
 
 
 def list_device_paths() -> list[str]:
@@ -79,7 +129,9 @@ def _describe(path: str, open_fn: Callable[[str], Any]) -> DeviceEntry | None:
     try:
         if is_virtual(dev.name):
             return None
-        return DeviceEntry(identity(dev), path, dev.name, has_keys(dev))
+        return DeviceEntry(identity(dev), path, dev.name, has_keys(dev), vendor=f"{dev.info.vendor:04x}",
+                           kind=device_kind(dev),
+                           primary=(dev.phys or "").endswith(PRIMARY_INTERFACE_SUFFIX))
     finally:
         dev.close()
 

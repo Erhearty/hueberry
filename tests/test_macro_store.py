@@ -62,6 +62,32 @@ def test_corrupt_file_moves_to_bak(tmp_path, content):
     assert (tmp_path / "macros.json.bak").read_bytes() == content
 
 
+def test_old_per_node_file_with_clashing_triggers_loads(tmp_path):
+    """Old /input<N> entries sharing a trigger merge without error; the file is not quarantined."""
+    first, clash = _config().devices[0].macros[0], Macro("m2", "Paste", True, "BTN_SIDE", [KeyStep("KEY_V")])
+    path = tmp_path / "macros.json"
+    path.write_text(json.dumps({"version": 1, "devices": [
+        DeviceMacros("1532:0084:Mouse:usb-1/input0", "Mouse", [first]).to_dict(),
+        DeviceMacros("1532:0084:Mouse:usb-1/input1", "Mouse", [clash]).to_dict(),
+    ]}))
+    assert store.load(path) == (_config(), None)
+    assert path.exists() and not (tmp_path / "macros.json.bak").exists()
+
+
+def test_old_file_without_repeat_fields_loads_and_saves_defaults(tmp_path):
+    """A file written before repeat modes existed loads as once; saving writes the defaults."""
+    data = {"version": 1, "devices": [_config().devices[0].to_dict()]}
+    for macro in data["devices"][0]["macros"]:
+        del macro["repeat_mode"], macro["repeat_count"]
+    path = tmp_path / "macros.json"
+    path.write_text(json.dumps(data))
+    config, error = store.load(path)
+    assert (config, error) == (_config(), None)
+    store.save(config, path)
+    (saved,) = json.loads(path.read_text())["devices"][0]["macros"]
+    assert (saved["repeat_mode"], saved["repeat_count"]) == ("once", 1)
+
+
 def test_save_refuses_invalid_config(tmp_path):
     """Invalid configs are never written."""
     config = _config()

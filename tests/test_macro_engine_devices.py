@@ -17,9 +17,19 @@ def _mouse(fake_evdev, path="/dev/input/event5", **kwargs):
 
 def test_identity_prefers_uniq_over_phys(fake_evdev):
     """vendor:product:name:uniq, falling back to phys."""
-    assert devices.identity(_mouse(fake_evdev)) == "1532:0084:Razer Basilisk:usb-0000:00:14.0-2/input0"
+    assert devices.identity(_mouse(fake_evdev)) == "1532:0084:Razer Basilisk:usb-0000:00:14.0-2"
     serial = _mouse(fake_evdev, "/dev/input/event6", uniq="SN123")
     assert devices.identity(serial) == "1532:0084:Razer Basilisk:SN123"
+
+
+def test_nodes_of_one_device_share_an_identity(fake_evdev):
+    """Three nodes differing only in /inputN are one physical device; other ports stay distinct."""
+    nodes = [_mouse(fake_evdev, f"/dev/input/event{10 + index}", phys=f"usb-0000:00:14.0-2/input{index}")
+             for index in range(3)]
+    assert {devices.identity(node) for node in nodes} == {"1532:0084:Razer Basilisk:usb-0000:00:14.0-2"}
+    other = _mouse(fake_evdev, "/dev/input/event20", phys="usb-0000:00:14.0-3/input0")
+    assert devices.identity(other) != devices.identity(nodes[0])
+    assert len({e.identity for e in devices.discover() if e.name == "Razer Basilisk"}) == 2
 
 
 def test_discover_skips_virtual_clones_and_closes(fake_evdev):
@@ -48,6 +58,32 @@ def test_discover_uses_injected_functions_and_skips_open_errors(fake_evdev):
 
     entries = devices.discover(list_devices=lambda: ["/dev/input/gone", mouse.path], open=_open)
     assert [e.path for e in entries] == [mouse.path]
+
+
+def test_device_kind(fake_evdev):
+    """REL_X plus BTN_LEFT is a mouse; KEY_A a keyboard; anything else other."""
+    ecodes = fake_evdev.ecodes
+    pointer = _mouse(fake_evdev, keys=[ecodes.BTN_LEFT], rel=[ecodes.REL_X])
+    assert devices.device_kind(pointer) == devices.KIND_MOUSE
+    keyboard = _mouse(fake_evdev, "/dev/input/event6", keys=[ecodes.KEY_A])
+    assert devices.device_kind(keyboard) == devices.KIND_KEYBOARD
+    buttons_only = _mouse(fake_evdev, "/dev/input/event7")
+    assert devices.device_kind(buttons_only) == devices.KIND_OTHER
+
+
+def test_probe_foreign_grab(fake_evdev):
+    """EBUSY means grabbed elsewhere; a successful probe is undone; held keys skip it; other errors are not busy."""
+    mouse = _mouse(fake_evdev)
+    assert not devices.probe_foreign_grab(mouse)
+    assert mouse.grab_calls == 1 and mouse.ungrab_calls == 1 and not mouse.grabbed
+    mouse.grab_error = errno.EBUSY
+    assert devices.probe_foreign_grab(mouse)
+    mouse.held_keys = [0x110]
+    assert not devices.probe_foreign_grab(mouse)
+    mouse.held_keys = []
+    mouse.grab_error = errno.EIO
+    assert not devices.probe_foreign_grab(mouse)
+    assert mouse.grab_calls == 1 and ("grab", mouse.path) in fake_evdev.call_log
 
 
 def test_check_permissions_reports_uinput_and_unreadable():
