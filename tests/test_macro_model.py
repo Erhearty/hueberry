@@ -7,6 +7,7 @@ import sys
 
 import pytest
 
+from hueberry import gui_link
 from hueberry.macros import keycodes
 from hueberry.macros.model import (
     MAX_DELAY_MS,
@@ -16,6 +17,7 @@ from hueberry.macros.model import (
     REPEAT_ONCE,
     REPEAT_TIMES,
     REPEAT_TOGGLE,
+    AppActionStep,
     DelayStep,
     DeviceMacros,
     KeyStep,
@@ -69,6 +71,37 @@ def test_macro_from_dict_rejects_shell_step():
     data["steps"].append({"type": "shell", "command": "echo hi"})
     with pytest.raises(ModelError, match="shell"):
         Macro.from_dict(data)
+
+
+def test_app_step_round_trips():
+    """An allow-listed app step survives to_dict -> JSON -> from_dict and validates."""
+    step = AppActionStep(gui_link.APP_ACTION_TOGGLE_SYSMON)
+    assert step.to_dict() == {"type": "app", "action": "toggle-sysmon"}
+    macro = _macro(steps=[KeyStep("KEY_A"), step])
+    restored = Macro.from_dict(json.loads(json.dumps(macro.to_dict())))
+    assert restored == macro and restored.steps[1] == step
+    assert not _config(restored).problems()
+
+
+def test_unknown_app_action_is_rejected():
+    """An action outside APP_ACTIONS is a validation problem; a wrong type is refused on load."""
+    config = _config(_macro(steps=[step_from_dict({"type": "app", "action": "launch-shell"})]))
+    assert "launch-shell" in " ".join(config.problems())
+    with pytest.raises(ModelError):
+        config.validate()
+    with pytest.raises(ModelError):
+        step_from_dict({"type": "app", "action": 1})
+    with pytest.raises(ModelError):
+        step_from_dict({"type": "app"})
+
+
+def test_toggle_macro_with_app_step_is_flagged():
+    """A looping (toggle) macro may not contain an app step; once/times may."""
+    macro = _macro(steps=[AppActionStep(gui_link.APP_ACTION_TOGGLE_SYSMON)])
+    macro.repeat_mode = REPEAT_TOGGLE
+    assert "toggle" in " ".join(_config(macro).problems())
+    macro.repeat_mode, macro.repeat_count = REPEAT_TIMES, 2
+    assert not _config(macro).problems()
 
 
 def test_bad_codes_are_reported():

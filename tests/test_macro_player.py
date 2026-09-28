@@ -5,7 +5,7 @@
 import pytest
 
 from hueberry.macro_engine.player import MIN_ITERATION_MS, Player
-from hueberry.macros.model import DelayStep, KeyStep
+from hueberry.macros.model import AppActionStep, DelayStep, KeyStep
 
 EV_SYN, EV_KEY = 0, 1
 SYN = (EV_SYN, 0, 0)
@@ -162,6 +162,35 @@ def test_current_is_set_while_playing(rig):
     player.stop()
     threads.run_next()
     assert player.current is None and not player.playing
+
+
+def _rig_with_notify(fake_evdev, notify):
+    uinput = fake_evdev.UInput(name="clone")
+    player = Player(uinput, sleep=lambda seconds: None, start_thread=lambda target: target(),
+                    clock=_frozen_clock, notify=notify)
+    return player, uinput
+
+
+def test_app_step_notifies_without_key_events(fake_evdev):
+    """An app step calls notify with its action and writes nothing to uinput."""
+    calls = []
+    player, uinput = _rig_with_notify(fake_evdev, lambda action: calls.append(action) or True)
+    player.play([AppActionStep("toggle-sysmon")])
+    assert calls == ["toggle-sysmon"]
+    assert uinput.writes == [] and not player.playing
+
+
+@pytest.mark.parametrize("outcome", [False, RuntimeError("gui gone")])
+def test_failing_notify_does_not_stop_the_macro(fake_evdev, outcome):
+    """notify returning False or raising is logged; following key steps still play."""
+    def _notify(action):
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    player, uinput = _rig_with_notify(fake_evdev, _notify)
+    player.play([AppActionStep("toggle-sysmon"), KeyStep("KEY_A")])
+    assert uinput.writes == TAP_A and not player.playing
 
 
 def test_default_sleep_is_cancellable(fake_evdev):
