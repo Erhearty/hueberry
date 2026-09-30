@@ -11,6 +11,7 @@ graph TD
     macro-engine -->|Unix domain socket ($XDG_RUNTIME_DIR/hueberry/gui.sock, GUI single-instance socket; newline-terminated allow-listed action names, e.g. toggle-sysmon)| razerui
     razerui -->|Unix domain socket IPC (child process spawned via subprocess)| macro-engine
     razerui -->|D-Bus (via system openrazer.client Python library); lifecycle control via subprocess (systemctl --user is-active/restart openrazer-daemon, else openrazer-daemon -s / killall / openrazer-daemon)| openrazer-daemon
+    razerui -->|HTTPS| sysmon
     razerui -->|Subprocess (spawns/stops waybar child in its own process group; pid file $XDG_RUNTIME_DIR/hueberry/sysmon.pid; writes Waybar config + sysmon.json)| sysmon-overlay
 ```
 
@@ -27,5 +28,6 @@ graph TD
 - [macro-engine → razerui](interactions/macro-engine--razerui.md) via `Unix domain socket ($XDG_RUNTIME_DIR/hueberry/gui.sock, GUI single-instance socket; newline-terminated allow-listed action names, e.g. toggle-sysmon)`
 - [razerui → macro-engine](interactions/razerui--macro-engine.md) via `Unix domain socket IPC (child process spawned via subprocess)`
 - [razerui → openrazer-daemon](interactions/razerui--openrazer-daemon.md) via `D-Bus (via system openrazer.client Python library); lifecycle control via subprocess (systemctl --user is-active/restart openrazer-daemon, else openrazer-daemon -s / killall / openrazer-daemon)`
+- [razerui → sysmon](interactions/razerui--sysmon.md) via `HTTPS`
 - [razerui → sysmon-overlay](interactions/razerui--sysmon-overlay.md) via `Subprocess (spawns/stops waybar child in its own process group; pid file $XDG_RUNTIME_DIR/hueberry/sysmon.pid; writes Waybar config + sysmon.json)`
 <!-- generated:end file:system-map -->

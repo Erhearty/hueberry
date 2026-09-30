@@ -29,6 +29,8 @@ PyQt6 front end (package hueberry) for OpenRazer: device pages, whole-device lig
 
 <!-- generated:start comp:macro-engine -->
 ## Macro Engine (`macro-engine`, BACKEND)
+
+**Tech:** Linux uinput/evdev (direct kernel input device access)
 <!-- generated:end comp:macro-engine -->
 
 <!-- generated:start comp:sysmon-overlay -->
