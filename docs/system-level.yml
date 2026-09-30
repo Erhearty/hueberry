@@ -7,6 +7,6 @@ capabilities:
   architecture/system-map: true
   conventions/agent-operating-contract: true
   domain/glossary: true
-  reference/api: false
+  reference/api: true
   reference/config: false
   reference/data-model: false

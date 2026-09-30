@@ -207,3 +207,11 @@ class MacroEngineService:
     def record_stop(self) -> dict:
         """Stop recording; the result holds ``events`` as ``[[code, value, t], ...]``."""
         return self.request(protocol.OP_RECORD_STOP)
+
+    def key_watch(self, names: list[str]) -> dict:
+        """Watch key-downs on devices whose name contains any of ``names`` (empty stops watching)."""
+        return self.request(protocol.OP_KEY_WATCH, names=names)
+
+    def key_events(self, since: int) -> dict:
+        """Key-downs from cursor ``since``: ``events`` as ``[[code, seq, t_ms], ...]`` and ``next``."""
+        return self.request(protocol.OP_KEY_EVENTS, since=since)

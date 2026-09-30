@@ -8,11 +8,11 @@ from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QListWidget, QSplitter
 
 import hueberry.app as app_module
-from hueberry.backend import animator
+from hueberry.backend import advanced_runtime
 from hueberry.backend.daemon import DaemonService
 from hueberry.settings import Settings
 from hueberry.sysmon.config import SysmonConfig
-from hueberry.ui import sysmon_sections, sysmon_wiring, worker
+from hueberry.ui import effects_wiring, sysmon_sections, sysmon_wiring, worker
 from hueberry.ui.main_window import MainWindow
 from hueberry.ui.tray import TrayController
 
@@ -82,7 +82,8 @@ def _tab_texts(win):
 def test_no_list_or_daemon_tab(window):
     win, _service = window
     lists = [lst for lst in win.findChildren(QListWidget)
-             if not win.macros_page.isAncestorOf(lst) and not win.presets_page.isAncestorOf(lst)]
+             if not any(page.isAncestorOf(lst) for page in (
+                 win.macros_page, win.effects_page))]
     assert not lists
     assert not win.findChildren(QSplitter)
     assert all("Daemo" not in text for text in _tab_texts(win))
@@ -322,39 +323,14 @@ def test_start_daemon_enabled_when_not_connected(window, fake_manager_factory):
     assert win.empty_page.start_button.isEnabled()
 
 
-class _RecordingAnimator:
-    """Stands in for the shared animator; records refresh/shutdown calls."""
+class _RecordingRuntime:
+    """Stands in for the shared advanced runtime; counts shutdown calls."""
 
-    def __init__(self, fail=False):
-        self.fail = fail
-        self.refreshed = []
+    def __init__(self):
         self.shutdowns = 0
-
-    def refresh(self, devices):
-        if self.fail:
-            raise RuntimeError("animator broke")
-        self.refreshed.append([dev.serial for dev in devices])
 
     def shutdown(self):
         self.shutdowns += 1
-
-
-def test_reload_refreshes_animations(window, monkeypatch, fake_manager_factory):
-    win, _service = window
-    recorder = _RecordingAnimator()
-    monkeypatch.setattr(animator, "shared_animator", lambda: recorder)
-    _connect(win)
-    assert recorder.refreshed[-1] == [MOUSE_SERIAL, KEYBOARD_SERIAL]
-    fake_manager_factory.devices = fake_manager_factory.devices[:1]
-    win.repoll_action.trigger()
-    assert recorder.refreshed[-1] == [MOUSE_SERIAL]
-
-
-def test_reload_survives_animator_error(window, monkeypatch):
-    win, _service = window
-    monkeypatch.setattr(animator, "shared_animator", lambda: _RecordingAnimator(fail=True))
-    win.reload()
-    assert win.statusBar().currentMessage() == "Animation error: animator broke"
 
 
 class _Signal:
@@ -366,14 +342,55 @@ class _Signal:
 
 
 def test_app_stops_animations_on_quit(monkeypatch):
-    recorder = _RecordingAnimator()
-    monkeypatch.setattr(animator, "shared_animator", lambda: recorder)
     fake_app = type("FakeApp", (), {})()
     fake_app.aboutToQuit = _Signal()
+    runtime = _RecordingRuntime()
+    monkeypatch.setattr(advanced_runtime, "shared_runtime", lambda: runtime)
     app_module._stop_animations_on_quit(fake_app)
-    (slot,) = fake_app.aboutToQuit.slots
-    slot()
-    assert recorder.shutdowns == 1
+    for slot in fake_app.aboutToQuit.slots:
+        slot()
+    assert runtime.shutdowns == 1
+
+
+def test_effects_page_opens_and_returns(window):
+    win, _service = window
+    _connect(win)
+    win.effects_nav.action.trigger()
+    assert win.stack.currentWidget() is win.effects_page
+    assert win.effects_nav.action.shortcut().toString() == "Ctrl+E"
+    assert win.effects_page.device_list.count() == 0  # neither test device has a key matrix
+    win.effects_page.back_button.click()
+    assert win.stack.currentWidget() is win.home_page
+    win.effects_nav.button.click()
+    assert win.stack.currentWidget() is win.effects_page
+
+
+def test_create_effect_nav_text_and_shortcut(window):
+    win, _service = window
+    nav = win.effects_nav
+    assert nav.button.text() == "Create effect\u2026"
+    assert nav.action.text() == "Create effect\u2026"
+    assert nav.action.shortcut().toString() == "Ctrl+E"
+    assert "Ctrl+E" in nav.button.toolTip()
+
+
+def test_reload_restores_last_effect(window, monkeypatch):
+    win, _service = window
+    calls = []
+    monkeypatch.setattr(effects_wiring, "restore_last", lambda devices: calls.append(devices))
+    _connect(win)
+    assert calls and len(calls[-1]) == 2
+
+
+def test_reload_survives_restore_error(window, monkeypatch):
+    win, _service = window
+
+    def broken(_devices):
+        raise RuntimeError("restore broke")
+
+    monkeypatch.setattr(effects_wiring, "restore_last", broken)
+    win.reload()
+    assert win.statusBar().currentMessage() == "Animation error: restore broke"
 
 
 def test_panel_status_reaches_status_bar(window):
@@ -403,30 +420,6 @@ def test_macros_button_opens_macros_page(window):
     win.macros_button.click()
     assert win.stack.currentWidget() is win.macros_page
     assert win.macros_action.shortcut().toString() == "Ctrl+M"
-
-
-def test_presets_page_opens_and_returns_to_previous_page(window):
-    win, _service = window
-    _connect(win)
-    _card(win, KEYBOARD_SERIAL).click()
-    win.presets_action.trigger()
-    assert win.stack.currentWidget() is win.presets_page
-    assert win.presets_action.shortcut().toString() == "Ctrl+P"
-    win.presets_page.back_button.click()
-    assert win.stack.currentWidget() is win.device_page
-    win.device_page.back_button.click()
-    win.presets_button.click()
-    assert win.stack.currentWidget() is win.presets_page
-    win.presets_page.back_button.click()
-    assert win.stack.currentWidget() is win.home_page
-
-
-def test_presets_page_gets_devices_and_status(window):
-    win, _service = window
-    _connect(win)
-    assert win.presets_page.device_list.count() == 2
-    win.presets_page.status.emit("presets saved")
-    assert win.statusBar().currentMessage() == "presets saved"
 
 
 def test_macros_status_reaches_status_bar(window):

@@ -18,7 +18,7 @@ import re
 import xml.etree.ElementTree as ET
 from typing import Callable
 
-from PyQt6.QtCore import QByteArray, QRectF, QSize
+from PyQt6.QtCore import QByteArray, QPointF, QRectF, QSize, QSizeF
 from PyQt6.QtGui import QColor, QPainter
 from PyQt6.QtSvg import QSvgRenderer
 
@@ -143,6 +143,29 @@ def _index(root: ET.Element) -> dict[Led, list[Paintable]]:
     return index
 
 
+def _led_ids(root: ET.Element) -> dict[Led, list[str]]:
+    """The element ids (as parsed) of every LED of the SVG."""
+    ids: dict[Led, list[str]] = {}
+    for node in root.iter():
+        key = _led_key(node)
+        if key is not None:
+            ids.setdefault(key, []).append(node.get(ID_ATTR) or "")
+    return ids
+
+
+def _element_rects(renderer: QSvgRenderer, root: ET.Element) -> dict[Led, QRectF]:
+    """Each LED's bounds in viewBox coordinates; LEDs the renderer lacks are skipped."""
+    rects: dict[Led, QRectF] = {}
+    for led, ids in _led_ids(root).items():
+        for element_id in ids:
+            if not renderer.elementExists(element_id):
+                continue
+            bounds = renderer.transformForElement(element_id).mapRect(
+                renderer.boundsOnElement(element_id))
+            rects[led] = rects[led].united(bounds) if led in rects else bounds
+    return rects
+
+
 def _merge_style(style: str | None, fill: str, stroke: str) -> str:
     """``style`` (``k:v;`` pairs) with its fill and stroke replaced."""
     pairs: dict[str, str] = {}
@@ -199,6 +222,7 @@ class DeviceGraphic:
             raise ValueError("device map is not a renderable SVG")
         self._elements = _index(self._root)
         self._order = sorted(self._elements)
+        self._led_rects = _element_rects(self._renderer, self._root)  # before recolouring
         self._key: tuple[RGBTuple | None, ...] | None = None
         self.reload_count = 0
 
@@ -210,6 +234,23 @@ class DeviceGraphic:
     def leds(self) -> set[Led]:
         """Every ``(row, col)`` the SVG draws."""
         return set(self._elements)
+
+    def led_rects(self) -> dict[Led, QRectF]:
+        """Each drawn LED's ``(row, col)`` with its bounds in viewBox coordinates."""
+        return {led: QRectF(rect) for led, rect in self._led_rects.items()}
+
+    def to_widget(self, rect: QRectF, target: QRectF) -> QRectF:
+        """``rect`` (viewBox coordinates) mapped onto ``target`` (from :meth:`target_rect`)."""
+        view = self._renderer.viewBoxF()
+        if view.isEmpty():
+            view = QRectF(QPointF(), QSizeF(self.default_size()))
+        if view.isEmpty():
+            return QRectF()
+        scale_x = target.width() / view.width()
+        scale_y = target.height() / view.height()
+        return QRectF(target.left() + (rect.left() - view.left()) * scale_x,
+                      target.top() + (rect.top() - view.top()) * scale_y,
+                      rect.width() * scale_x, rect.height() * scale_y)
 
     def default_size(self) -> QSize:
         """The SVG's own size."""

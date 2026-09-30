@@ -224,3 +224,12 @@ def test_client_calls():
     service.record_stop()
     assert client.requests == [("status", {}), ("list_devices", {}), ("reload", {}),
                                ("record_start", {"identity": "dev-1"}), ("record_stop", {})]
+
+
+def test_key_watch_calls():
+    """key_watch and key_events forward their op and args."""
+    client = FakeClient([{"names": ["Naga"], "nodes": []}, {"events": [], "next": 0}])
+    service, _sleeps = _service(client=client)
+    assert service.key_watch(["Naga"])["names"] == ["Naga"]
+    assert service.key_events(0) == {"events": [], "next": 0}
+    assert client.requests == [("key_watch", {"names": ["Naga"]}), ("key_events", {"since": 0})]

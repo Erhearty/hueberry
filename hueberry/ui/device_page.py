@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 
 from hueberry.backend.devices import DeviceInfo
 from hueberry.ui.device_icons import pixmap_for_type
-from hueberry.ui import layouts, presets_preview, theme
+from hueberry.ui import device_preview, layouts, theme
 from hueberry.ui import lighting_preview as preview_mapping
 from hueberry.ui.device_info_panel import DeviceInfoPanel
 from hueberry.ui.led_preview import LedPreview
@@ -133,7 +133,7 @@ class DevicePage(QWidget):
         """Show ``dev`` in the bottom preview; hidden when it has no lighting target."""
         shown = None
         if dev is not None and info is not None:
-            shown = presets_preview.preview_device(dev, info)
+            shown = device_preview.preview_device(dev, info)
         self.lighting_preview.set_devices([shown] if shown is not None else [])
         self.lighting_preview.setVisible(shown is not None)
         if shown is None:

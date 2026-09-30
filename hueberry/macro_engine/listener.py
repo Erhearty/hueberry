@@ -80,3 +80,30 @@ def prepare_socket(path: Path, probe: Callable[[Path], bool] = probe_engine) -> 
         sock.close()
         raise
     return sock
+
+
+def accept_client(listener: Any, timeout: float) -> Any:
+    """Accept one pending connection with ``timeout`` for its I/O, or None when there is none."""
+    try:
+        conn, _addr = listener.accept()
+    except BlockingIOError:
+        return None
+    except OSError as exc:
+        logger.warning("accept failed: %s", exc)
+        return None
+    conn.settimeout(timeout)
+    return conn
+
+
+def send_reply(conn: Any, response: dict) -> bool:
+    """Encode and send ``response`` (an encoding error is sent instead); False if the client is gone."""
+    try:
+        payload = protocol.encode(response)
+    except protocol.ProtocolError as exc:
+        payload = protocol.encode(protocol.error_response(str(exc)))
+    try:
+        conn.sendall(payload)
+    except OSError as exc:
+        logger.info("Client went away: %s", exc)
+        return False
+    return True

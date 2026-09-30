@@ -34,6 +34,21 @@ def test_corrupt_file_falls_back(config_home, content):
     assert Settings().close_to_tray is True
 
 
+def test_last_advanced_preset_default_and_round_trip(config_home):
+    assert Settings().last_advanced_preset == ""
+    Settings().set("last_advanced_preset", "neon")
+    assert Settings().last_advanced_preset == "neon"
+    Settings().set("last_advanced_preset", "")
+    assert Settings().last_advanced_preset == ""
+
+
+def test_last_advanced_preset_wrong_type_falls_back(config_home):
+    path = settings_path()
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"last_advanced_preset": 3}), encoding="utf-8")
+    assert Settings().last_advanced_preset == ""
+
+
 def test_unknown_keys_preserved(config_home):
     path = settings_path()
     path.parent.mkdir(parents=True)

@@ -28,6 +28,8 @@ TOLERANCE = 8
 ORIGINAL_GREY = QColor(0x80, 0x80, 0x80)  # the fixture LEDs' own fill
 REAL_MAP = "blackwidow_elite_en_US.svg"
 REAL_LED_ID = "x14-y0"  # the F12 key
+REAL_F12 = (0, 14)
+REAL_ESC = (0, 1)  # x1-y0
 REAL_IMAGE_SIZE = (944, 373)
 SVG_PREFIX = b"svg:"
 
@@ -149,6 +151,26 @@ def test_real_map_paints_leds_without_svg_prefix(qapp):
     assert graphic.renderer.elementExists(REAL_LED_ID)
     assert _close(_mapped_centre(graphic, image, REAL_LED_ID), RED)
     assert SVG_PREFIX not in ET.tostring(graphic._root)
+
+
+def test_real_map_led_rects_map_into_target(qapp):
+    graphic = DeviceGraphic(_real_map_bytes())
+    rects = graphic.led_rects()
+    assert REAL_F12 in rects and REAL_ESC in rects
+    assert set(rects) <= graphic.leds()
+    target = graphic.target_rect(QRectF(0, 0, *REAL_IMAGE_SIZE))
+    f12 = graphic.to_widget(rects[REAL_F12], target)
+    esc = graphic.to_widget(rects[REAL_ESC], target)
+    assert f12.left() > esc.right()
+    assert not f12.isEmpty()
+    assert target.contains(f12) and target.contains(esc)
+
+
+def test_led_rects_unchanged_by_painting(graphic):
+    before = graphic.led_rects()
+    _render(graphic, _one_red)
+    assert graphic.led_rects() == before
+    assert set(before) == EXPECTED_LEDS
 
 
 def test_invalid_svg_raises(qapp):

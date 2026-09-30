@@ -18,7 +18,7 @@ import sys
 from PyQt6.QtCore import QThreadPool
 from PyQt6.QtWidgets import QApplication
 
-from hueberry.backend import animator
+from hueberry.backend import advanced_runtime
 from hueberry.backend.daemon import DaemonService
 from hueberry.backend.macro_engine import MacroEngineService
 from hueberry.settings import Settings
@@ -105,12 +105,12 @@ def _show_window(window: MainWindow, tray: TrayController, background: bool) -> 
 
 
 def _stop_animations_on_quit(app: QApplication) -> None:
-    """Stop (and restore) preset animations when Qt is about to quit."""
+    """Stop the per-key effect runtime when Qt is about to quit."""
     about_to_quit = getattr(app, "aboutToQuit", None)
     if about_to_quit is None:  # not a real QApplication
         logger.warning("Application has no aboutToQuit signal; animations not bound")
         return
-    about_to_quit.connect(animator.shared_animator().shutdown)
+    about_to_quit.connect(advanced_runtime.shared_runtime().shutdown)
 
 
 def main(argv: list[str] | None = None) -> int:

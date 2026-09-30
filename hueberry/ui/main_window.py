@@ -16,10 +16,9 @@ from PyQt6.QtWidgets import (
     QDialog, QDialogButtonBox, QMainWindow, QStackedWidget, QVBoxLayout, QWidget,
 )
 
-from hueberry.backend import animator, lighting_state
 from hueberry.backend.daemon import DaemonService
 from hueberry.backend.devices import DeviceInfo, describe_device
-from hueberry.ui import sysmon_wiring, worker
+from hueberry.ui import effects_wiring, sysmon_wiring, worker
 from hueberry.ui.app_header import AppHeader
 from hueberry.ui.daemon_panel import DaemonPanel
 from hueberry.ui.daemon_status_bar import DaemonStatusBar
@@ -27,7 +26,6 @@ from hueberry.ui.device_cards import DeviceGrid
 from hueberry.ui.device_page import DevicePage
 from hueberry.ui.empty_state import EmptyStatePanel
 from hueberry.ui.macros_page import MacrosPage
-from hueberry.ui.presets_page import PresetsPage
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +43,6 @@ UNKNOWN_ERROR = "unknown error"
 MACROS_TEXT = "&Macros\u2026"
 MACROS_SHORTCUT = "Ctrl+M"
 MACROS_TIP = "Record, edit and bind macros (Ctrl+M)"
-PRESETS_TEXT = "Presets\u2026"  # no mnemonic: every letter is taken; Ctrl+P opens it
-PRESETS_SHORTCUT = "Ctrl+P"
-PRESETS_TIP = "Create, edit and apply lighting presets (Ctrl+P)"
 
 
 class MainWindow(QMainWindow):
@@ -73,7 +68,6 @@ class MainWindow(QMainWindow):
         self._current_serial: str | None = None  # selected device, if it is present
         self._busy = False  # a window action (status bar / shortcut / empty state) is running
         self._panel_busy = False  # a Daemon dialog action is running
-        self._before_presets: QWidget | None = None  # page to return to from Presets
         self.setWindowTitle(WINDOW_TITLE)
         self.resize(DEFAULT_WIDTH, DEFAULT_HEIGHT)
         self._build_pages()
@@ -81,12 +75,12 @@ class MainWindow(QMainWindow):
         self._build_actions()
         self.header = AppHeader(self)
         self.macros_button = self.header.add_nav(MACROS_TEXT, MACROS_TIP)
-        self.presets_button = self.header.add_nav(PRESETS_TEXT, PRESETS_TIP)
         self.daemon_bar = DaemonStatusBar(self._service, self)
         self.header.add_trailing(self.daemon_bar)
         self.setMenuWidget(self.header)
         self._connect_signals()
         self.sysmon_nav = sysmon_wiring.connect_window(self, self._sysmon, self._tray)
+        self.effects_nav = effects_wiring.connect_window(self, self._engine)
         self.reload()
 
     # -- construction --------------------------------------------------------
@@ -101,12 +95,11 @@ class MainWindow(QMainWindow):
         self.mouse_panel = self.device_page.mouse_panel
         self.empty_page = EmptyStatePanel(self)
         self.macros_page = MacrosPage(self._engine, self)
-        self.presets_page = PresetsPage(self)
         self.stack = QStackedWidget(self)
-        for page in (self.home_page, self.device_page, self.empty_page, self.macros_page,
-                     self.presets_page):
+        for page in (self.home_page, self.device_page, self.empty_page, self.macros_page):
             self.stack.addWidget(page)
         self.sysmon_page = sysmon_wiring.add_page(self.stack, self._sysmon)
+        self.effects_page = effects_wiring.add_page(self.stack)
         self.setCentralWidget(self.stack)
 
     def _build_daemon_dialog(self) -> None:
@@ -127,10 +120,7 @@ class MainWindow(QMainWindow):
         self.restart_action.setShortcut(QKeySequence(RESTART_SHORTCUT))
         self.macros_action = QAction(MACROS_TEXT, self)
         self.macros_action.setShortcut(QKeySequence(MACROS_SHORTCUT))
-        self.presets_action = QAction(PRESETS_TEXT, self)
-        self.presets_action.setShortcut(QKeySequence(PRESETS_SHORTCUT))
-        for action in (self.repoll_action, self.restart_action, self.macros_action,
-                       self.presets_action):
+        for action in (self.repoll_action, self.restart_action, self.macros_action):
             action.setShortcutContext(Qt.ShortcutContext.WindowShortcut)
             self.addAction(action)
 
@@ -149,18 +139,9 @@ class MainWindow(QMainWindow):
             lambda: self.run_service_action("Start daemon", service.start_and_connect))
         for panel in (self.lighting_panel, self.mouse_panel, self.daemon_panel):
             panel.status.connect(self.show_status)
-        self.lighting_panel.report_preset_error()  # loaded before status was connected
         self.daemon_panel.daemon_changed.connect(self.reload)
         self.daemon_panel.busy_changed.connect(self._on_panel_busy)
         self._connect_macros()
-        self._connect_presets()
-
-    def _connect_presets(self) -> None:
-        self.presets_action.triggered.connect(self.show_presets)
-        self.presets_button.clicked.connect(self.show_presets)
-        self.presets_page.back_requested.connect(self._leave_presets)
-        self.presets_page.status.connect(self.show_status)
-        self.presets_page.presets_saved.connect(self.lighting_panel.reload_presets)
 
     def _connect_macros(self) -> None:
         self.macros_action.triggered.connect(self.show_macros)
@@ -213,15 +194,6 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentWidget(self.macros_page)
         self.macros_page.device_list.setFocus()
 
-    def show_presets(self) -> None:
-        """Open the Presets page, remembering the page to return to."""
-        current = self.stack.currentWidget()
-        if current is not self.presets_page:
-            self._before_presets = current
-        self.presets_page.refresh()
-        self.stack.setCurrentWidget(self.presets_page)
-        self.presets_page.preset_list.setFocus()
-
     def show_sysmon(self) -> None:
         """Open the System monitor page (no-op without a sysmon controller)."""
         if self.sysmon_nav is not None:
@@ -263,15 +235,6 @@ class MainWindow(QMainWindow):
         if self.stack.currentWidget() is self.home_page:
             self.home_page.focus_selected()
 
-    def _leave_presets(self) -> None:
-        """Return to the page shown before Presets, then reload (it may be stale)."""
-        previous = self._before_presets or self.home_page
-        self._before_presets = None
-        self.stack.setCurrentWidget(previous)
-        self.reload()
-        if self.stack.currentWidget() is self.home_page:
-            self.home_page.focus_selected()
-
     def _rescan(self) -> None:
         self.run_service_action(REPOLL_TEXT, self._service.repoll)
 
@@ -291,8 +254,8 @@ class MainWindow(QMainWindow):
         self.daemon_bar.refresh()
         self._entries = [(dev, describe_device(dev)) for dev in devices]
         self.home_page.set_devices([info for _dev, info in self._entries])
-        self.presets_page.set_devices(self._entries)
-        stay_on = (self.macros_page, self.presets_page, self.sysmon_page)
+        self.effects_page.set_devices(self._entries)
+        stay_on = (self.macros_page, self.sysmon_page, self.effects_page)
         if self.stack.currentWidget() in stay_on:
             return  # stay on that page; the grid is updated for later
         if not self._entries:
@@ -305,13 +268,10 @@ class MainWindow(QMainWindow):
             self._show_home()
 
     def _refresh_animations(self, devices: list[Any]) -> None:
-        """Rebind preset animations to the new device objects, then restore saved ones."""
+        """Restore the last per-key effect on the new device objects."""
         try:
-            animator.shared_animator().refresh(devices)
-            error = lighting_state.shared_lighting_state().restore(devices)
-            if error:
-                self.show_status(f"Lighting state: {error}")
-        except Exception as exc:  # a failing animator must not break the reload
+            effects_wiring.restore_last(devices)
+        except Exception as exc:  # a failing restore must not break the reload
             logger.exception("Refreshing lighting animations failed")
             self.show_status(f"Animation error: {exc}")
 
