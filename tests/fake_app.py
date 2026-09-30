@@ -192,6 +192,7 @@ def install(monkeypatch, app_module, *, tray_available=True, running=False):
     monkeypatch.setattr(app_module, "Settings", lambda: "settings")
     monkeypatch.setattr(app_module, "MacroEngineService", FakeEngine)
     monkeypatch.setattr(app_module, "SysmonController", FakeSysmon)
+    monkeypatch.setattr(app_module, "install_wheel_guard", lambda app: None)
     themed = []
     monkeypatch.setattr(app_module, "apply_theme", themed.append)
     return themed

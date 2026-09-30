@@ -12,7 +12,7 @@ from hueberry.sysmon import config as sc
 NVME = sc.DiskSpec("nvme0n1", "NVMe", 1073.0)
 SATA = sc.DiskSpec("sda", "SSD", 175.0)
 CUSTOM = sc.SysmonConfig(enabled=True, show_vram=False, disks=(NVME, SATA), gpu_card="card1",
-                         edge=sc.EDGE_LEFT, alignment=sc.ALIGN_CENTER,
+                         align_x=sc.ALIGN_LEFT, align_y=sc.ALIGN_CENTER,
                          orientation=sc.ORIENTATION_STACKED, margin_top=5, margin_left=7,
                          width=0, height=300, interval_s=2.5)
 
@@ -29,8 +29,8 @@ def test_defaults():
     assert cfg.enabled is False
     assert all(getattr(cfg, sc.METRIC_FIELD_PREFIX + name) for name in sc.METRICS)
     assert cfg.disks == ()
-    assert (cfg.gpu_card, cfg.edge, cfg.alignment, cfg.orientation) == (
-        "auto", "top", "end", "row")
+    assert (cfg.gpu_card, cfg.align_x, cfg.align_y, cfg.orientation) == (
+        "auto", "right", "top", "row")
     assert (cfg.margin_top, cfg.margin_right, cfg.margin_bottom, cfg.margin_left) == (
         40, 20, 0, 0)
     assert (cfg.width, cfg.height, cfg.interval_s) == (500, 0, 1.0)
@@ -61,12 +61,45 @@ def test_from_dict_missing_keys_default():
     assert cfg.interval_s == 2.0
 
 
+@pytest.mark.parametrize("edge", ["weird", 3, None, ["left"]])
+def test_from_dict_ignores_stray_edge_key(edge):
+    """An unknown legacy 'edge' value is dropped and the config still loads."""
+    assert sc.SysmonConfig.from_dict({"edge": edge}) == sc.SysmonConfig()
+
+
+@pytest.mark.parametrize(("data", "expected"), [
+    ({"edge": "top", "align_x": "left", "align_y": "bottom"}, ("left", "top")),
+    ({"edge": "bottom", "align_x": "center", "align_y": "top"}, ("center", "bottom")),
+    ({"edge": "left", "align_x": "right", "align_y": "top"}, ("left", "center")),
+    ({"edge": "right", "align_x": "left", "align_y": "bottom"}, ("right", "center")),
+    ({"edge": "left", "align_y": "center", "align_x": "right"}, ("left", "center")),
+    ({"edge": "left", "align_x": "center", "align_y": "center"}, ("left", "center")),
+])
+def test_from_dict_migrates_legacy_edge(data, expected):
+    """A legacy 'edge' overrides conflicting stored aligns and yields a valid config."""
+    cfg = sc.SysmonConfig.from_dict(data)
+    assert (cfg.align_x, cfg.align_y) == expected
+    assert cfg.problems() == []
+
+
+def test_legacy_edge_file_loads_without_quarantine():
+    """A saved file with 'edge' and center/center aligns loads, keeping other settings."""
+    path = sc.config_path()
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps({"version": 1, "edge": "left", "align_x": "center",
+                                "align_y": "center", "margin_top": 7}), encoding="utf-8")
+    config, error = sc.load_with_error()
+    assert error is None
+    assert (config.align_x, config.align_y) == ("left", "center")
+    assert config.margin_top == 7
+
+
 @pytest.mark.parametrize("data", [
     [],
     {"enabled": 1},
     {"width": True},
     {"width": "500"},
-    {"edge": 3},
+    {"align_x": 3},
     {"interval_s": "1"},
     {"interval_s": False},
     {"disks": {}},
@@ -91,8 +124,10 @@ def test_from_dict_rejects_bad_shape(data):
     {"gpu_card": "/dev/dri/card0"},
     {"gpu_card": "card"},
     {"gpu_card": "card0\n"},
-    {"edge": "middle"},
-    {"alignment": "left"},
+    {"align_x": "top"},
+    {"align_y": "left"},
+    {"align_x": "start"},
+    {"align_x": sc.ALIGN_CENTER, "align_y": sc.ALIGN_CENTER},
     {"orientation": "column"},
     {"margin_top": -1},
     {"margin_left": sc.MAX_MARGIN + 1},
@@ -137,7 +172,7 @@ def test_save_load_round_trip(tmp_path):
 def test_save_rejects_invalid_config():
     """An invalid config is never written."""
     with pytest.raises(sc.SysmonConfigError):
-        sc.save(sc.SysmonConfig(edge="middle"))
+        sc.save(sc.SysmonConfig(align_x="middle"))
     assert not sc.config_path().exists()
 
 

@@ -103,7 +103,7 @@ class SysmonPage(QWidget):
         """The page's controls in tab order."""
         return [self.back_button, self.toggle_button, *self.metric_boxes.values(),
                 self.disk_table, self.add_disk_button, self.remove_disk_button,
-                self.gpu_combo, self.edge_combo, self.align_combo,
+                self.gpu_combo, self.align_x_combo, self.align_y_combo,
                 *self.margin_spins.values(), self.width_spin, self.height_spin,
                 self.row_radio, self.stacked_radio, self.bind_button, self.apply_button]
 
@@ -121,8 +121,8 @@ class SysmonPage(QWidget):
             box.setChecked(getattr(cfg, METRIC_FIELD_PREFIX + metric))
         sysmon_sections.set_disk_rows(self.disk_table, cfg.disks or self._detected_disks)
         self._fill_gpu_combo(cfg.gpu_card)
-        _select_data(self.edge_combo, cfg.edge)
-        _select_data(self.align_combo, cfg.alignment)
+        _select_data(self.align_x_combo, cfg.align_x)
+        _select_data(self.align_y_combo, cfg.align_y)
         for side, spin in self.margin_spins.items():
             spin.setValue(getattr(cfg, MARGIN_FIELD_PREFIX + side))
         self.width_spin.setValue(cfg.width)
@@ -194,7 +194,8 @@ class SysmonPage(QWidget):
         stacked = self.stacked_radio.isChecked()
         cfg = dataclasses.replace(
             self._controller.config, disks=disks, gpu_card=self.gpu_combo.currentData(),
-            edge=self.edge_combo.currentData(), alignment=self.align_combo.currentData(),
+            align_x=self.align_x_combo.currentData(),
+            align_y=self.align_y_combo.currentData(),
             orientation=ORIENTATION_STACKED if stacked else ORIENTATION_ROW,
             width=self.width_spin.value(), height=self.height_spin.value(), **values)
         return cfg, problems

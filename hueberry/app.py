@@ -26,6 +26,7 @@ from hueberry.single_instance import TOGGLE_SYSMON_MESSAGE, SingleInstance
 from hueberry.sysmon.controller import SysmonController
 from hueberry.ui.main_window import MainWindow
 from hueberry.ui.theme import apply_theme
+from hueberry.ui.wheel_guard import install as install_wheel_guard
 from hueberry.ui.tray import TrayController
 
 APP_NAME = "Hueberry"
@@ -129,6 +130,7 @@ def main(argv: list[str] | None = None) -> int:
     background = background or toggle_sysmon
     logger.info("Hueberry starting (background=%s)", background)
     apply_theme(app)
+    install_wheel_guard(app)
     tray = TrayController(Settings())
     if tray.available:
         app.setQuitOnLastWindowClosed(False)

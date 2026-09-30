@@ -9,18 +9,30 @@ from importlib.resources import files
 import pytest
 
 from hueberry.sysmon import waybar
-from hueberry.sysmon.config import (
-    ALIGN_CENTER, ALIGN_END, ALIGN_START, EDGES, SysmonConfig,
-)
+from hueberry.sysmon.config import SysmonConfig
 
 PYTHON = "/usr/bin/python3"
 CONFIG_PATH = "/tmp/sysmon.json"
 MODULE_KEYS = ("modules-left", "modules-center", "modules-right")
 OLD_MARGIN_TOP = 40
 OLD_MARGIN_RIGHT = 20
-OLD_WIDTH = 500
+CUSTOM_WIDTH = 240
 CUSTOM_HEIGHT = 120
 USER_STYLE = b"/* user edited */\n"
+
+
+def _bundled_style() -> bytes:
+    """The style sheet shipped in the package."""
+    return files("hueberry.data").joinpath("sysmon/style.css").read_bytes()
+
+
+def _css_rule(css: str, selector: str) -> str:
+    """The body of the first rule whose selector is exactly ``selector``."""
+    for line in css.splitlines():
+        head, _sep, body = line.partition("{")
+        if head.strip() == selector:
+            return body
+    raise AssertionError(f"no rule for {selector}")
 
 
 @pytest.fixture(autouse=True)
@@ -47,7 +59,7 @@ def test_defaults_reproduce_old_config():
     assert bar["margin-right"] == OLD_MARGIN_RIGHT
     assert bar["margin-bottom"] == 0
     assert bar["margin-left"] == 0
-    assert bar["width"] == OLD_WIDTH
+    assert "width" not in bar
     assert "height" not in bar
 
 
@@ -62,28 +74,46 @@ def test_module_config():
         PYTHON, "-m", "hueberry.sysmon.collector", "--config", CONFIG_PATH]
 
 
-@pytest.mark.parametrize("edge", EDGES)
-def test_edge_maps_to_position(edge):
-    """Each edge becomes the Waybar position."""
-    assert _build(SysmonConfig(edge=edge))["position"] == edge
-
-
-@pytest.mark.parametrize("alignment, key", [
-    (ALIGN_START, "modules-left"),
-    (ALIGN_CENTER, "modules-center"),
-    (ALIGN_END, "modules-right"),
+@pytest.mark.parametrize("align_x, align_y, position, key", [
+    ("left", "top", "top", "modules-left"),
+    ("center", "top", "top", "modules-center"),
+    ("right", "top", "top", "modules-right"),
+    ("left", "bottom", "bottom", "modules-left"),
+    ("center", "bottom", "bottom", "modules-center"),
+    ("right", "bottom", "bottom", "modules-right"),
+    ("left", "center", "left", "modules-center"),
+    ("right", "center", "right", "modules-center"),
 ])
-def test_alignment_maps_to_exactly_one_module_list(alignment, key):
-    """The module lands in exactly one modules-* list chosen by alignment."""
-    bar = _build(SysmonConfig(alignment=alignment))
+def test_alignment_maps_to_position_and_one_module_list(align_x, align_y, position, key):
+    """align_x/align_y pick the Waybar position and exactly one modules-* list."""
+    cfg = SysmonConfig(align_x=align_x, align_y=align_y)
+    assert waybar.bar_position(cfg) == (position, key)
+    bar = _build(cfg)
+    assert bar["position"] == position
     assert bar[key] == ["custom/sysmon"]
     assert [name for name in MODULE_KEYS if name in bar] == [key]
 
 
 def test_size_only_when_non_zero():
     """Zero width/height are omitted; non-zero values are passed through."""
-    assert "width" not in _build(SysmonConfig(width=0))
+    assert "width" not in _build(SysmonConfig(align_x="left", align_y="center", width=0))
     assert _build(SysmonConfig(height=CUSTOM_HEIGHT))["height"] == CUSTOM_HEIGHT
+
+
+@pytest.mark.parametrize("align_x", ["left", "right"])
+def test_side_placement_emits_width_only(align_x):
+    """A left/right bar gets the width and never the height."""
+    bar = _build(SysmonConfig(align_x=align_x, align_y="center", width=CUSTOM_WIDTH,
+                              height=CUSTOM_HEIGHT))
+    assert bar["width"] == CUSTOM_WIDTH
+    assert "height" not in bar
+
+
+def test_top_placement_emits_height_only():
+    """A top bar gets the height and never the width."""
+    bar = _build(SysmonConfig(align_y="top", width=CUSTOM_WIDTH, height=CUSTOM_HEIGHT))
+    assert bar["height"] == CUSTOM_HEIGHT
+    assert "width" not in bar
 
 
 def test_exec_quotes_path_with_space(tmp_path):
@@ -117,3 +147,20 @@ def test_write_files_keeps_existing_style(tmp_path):
     (out_dir / "style.css").write_bytes(USER_STYLE)
     _cfg, style = waybar.write_files(SysmonConfig(), tmp_path / "s.json", out_dir)
     assert style.read_bytes() == USER_STYLE
+
+
+def test_write_files_upgrades_legacy_style(tmp_path):
+    """An untouched earlier bundled style sheet is replaced with the current one."""
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    (out_dir / "style.css").write_bytes(waybar.LEGACY_BUNDLED_STYLES[0])
+    _cfg, style = waybar.write_files(SysmonConfig(), tmp_path / "s.json", out_dir)
+    assert style.read_bytes() == _bundled_style()
+
+
+def test_bundled_style_paints_only_the_module():
+    """The bar window is transparent; only the module box has a background."""
+    css = _bundled_style().decode("utf-8")
+    assert "transparent" in _css_rule(css, "window#waybar")
+    assert "background" in _css_rule(css, "#custom-sysmon")
+    assert _bundled_style() not in waybar.LEGACY_BUNDLED_STYLES

@@ -11,7 +11,8 @@ from PyQt6.QtWidgets import (
 )
 
 from hueberry.sysmon.config import (
-    ALIGN_START, EDGE_BOTTOM, ORIENTATION_STACKED, DiskSpec, SysmonConfig,
+    ALIGN_BOTTOM, ALIGN_CENTER, ALIGN_LEFT, ALIGN_RIGHT, ALIGN_TOP, ORIENTATION_STACKED, DiskSpec,
+    SysmonConfig,
 )
 from hueberry.ui import sysmon_sections
 from hueberry.ui.sysmon_page import APPLIED_TEXT, SysmonPage
@@ -120,8 +121,8 @@ def test_edit_and_apply_passes_expected_config(page, controller, messages):
     for column, text in ((COL_DEVICE, "sda"), (COL_LABEL, "Slow"), (COL_MAX, "250")):
         _set_cell(page, 1, column, text)
     _select(page.gpu_combo, "card1")
-    _select(page.edge_combo, EDGE_BOTTOM)
-    _select(page.align_combo, ALIGN_START)
+    _select(page.align_x_combo, ALIGN_LEFT)
+    _select(page.align_y_combo, ALIGN_CENTER)
     page.margin_spins["top"].setValue(MARGIN_TOP)
     page.margin_spins["left"].setValue(MARGIN_LEFT)
     page.width_spin.setValue(0)
@@ -129,13 +130,29 @@ def test_edit_and_apply_passes_expected_config(page, controller, messages):
     page.stacked_radio.setChecked(True)
     page.apply_button.click()
     expected = dataclasses.replace(
-        SysmonConfig(), show_gpu=False, gpu_card="card1", edge=EDGE_BOTTOM,
-        alignment=ALIGN_START, orientation=ORIENTATION_STACKED, margin_top=MARGIN_TOP,
+        SysmonConfig(), show_gpu=False, gpu_card="card1",
+        align_x=ALIGN_LEFT, align_y=ALIGN_CENTER, orientation=ORIENTATION_STACKED, margin_top=MARGIN_TOP,
         margin_left=MARGIN_LEFT, width=0, height=HEIGHT,
         disks=(DiskSpec("nvme0n1", "Fast", 500.0), DiskSpec("sda", "Slow", SDA_MAX)))
     assert controller.applied == [expected]
     assert messages == [APPLIED_TEXT]
     assert page.problems_label.isHidden()
+
+
+def test_align_choices_are_three_each(page):
+    xs = [page.align_x_combo.itemData(i) for i in range(page.align_x_combo.count())]
+    ys = [page.align_y_combo.itemData(i) for i in range(page.align_y_combo.count())]
+    assert xs == ["left", "center", "right"]
+    assert ys == ["top", "center", "bottom"]
+
+
+def test_right_top_applies_and_both_combos_enabled(page, controller):
+    _select(page.align_x_combo, ALIGN_RIGHT)
+    _select(page.align_y_combo, ALIGN_TOP)
+    page.apply_button.click()
+    assert controller.applied[-1].align_x == "right"
+    assert controller.applied[-1].align_y == "top"
+    assert page.align_x_combo.isEnabled() and page.align_y_combo.isEnabled()
 
 
 def test_blank_disk_rows_are_ignored(page, controller):
@@ -203,14 +220,16 @@ def test_bind_key_and_back_signals(page, qtbot):
 
 def test_refresh_reloads_from_config(page, controller):
     page.metric_boxes["cpu"].setChecked(False)
-    controller.config = SysmonConfig(show_cpu=True, show_ram=False, edge=EDGE_BOTTOM,
+    controller.config = SysmonConfig(show_cpu=True, show_ram=False, align_x=ALIGN_LEFT,
+                                     align_y=ALIGN_BOTTOM,
                                      gpu_card="card5", orientation=ORIENTATION_STACKED,
                                      margin_top=MARGIN_TOP, height=HEIGHT,
                                      disks=(DiskSpec("sdc", "Backup", SDA_MAX),))
     page.refresh()
     assert page.metric_boxes["cpu"].isChecked()
     assert not page.metric_boxes["ram"].isChecked()
-    assert page.edge_combo.currentData() == EDGE_BOTTOM
+    assert page.align_x_combo.currentData() == ALIGN_LEFT
+    assert page.align_y_combo.currentData() == ALIGN_BOTTOM
     assert page.gpu_combo.currentData() == "card5"
     assert page.stacked_radio.isChecked()
     assert page.margin_spins["top"].value() == MARGIN_TOP

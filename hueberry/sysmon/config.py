@@ -15,8 +15,12 @@ Flat field layout of ``SysmonConfig`` (also the JSON keys, plus ``version``):
   which metrics are displayed.
 * ``disks`` - tuple of DiskSpec; empty means auto-detect.
 * ``gpu_card`` - ``"auto"`` or a DRM card name such as ``card1``.
-* ``edge`` / ``alignment`` / ``orientation`` - one of EDGES / ALIGNMENTS /
-  ORIENTATIONS.
+* ``align_x`` / ``align_y`` / ``orientation`` - one of ALIGNS_X / ALIGNS_Y /
+  ORIENTATIONS. ``align_x`` (left/center/right) and ``align_y``
+  (top/center/bottom) together place the overlay, e.g. right + top is the
+  top-right corner; both center is not allowed. A legacy ``edge`` key from
+  older files is migrated on load: top/bottom set ``align_y``, left/right set
+  ``align_x`` and centre ``align_y``; any other value is dropped.
 * ``margin_top``, ``margin_right``, ``margin_bottom``, ``margin_left`` - pixels.
 * ``width``, ``height`` - pixels, 0 means automatic.
 * ``interval_s`` - sampling interval in seconds.
@@ -33,15 +37,13 @@ from hueberry import config_files
 
 logger = logging.getLogger(__name__)
 
-EDGE_TOP = "top"
-EDGE_BOTTOM = "bottom"
-EDGE_LEFT = "left"
-EDGE_RIGHT = "right"
-EDGES = (EDGE_TOP, EDGE_BOTTOM, EDGE_LEFT, EDGE_RIGHT)
-ALIGN_START = "start"
+ALIGN_LEFT = "left"
+ALIGN_RIGHT = "right"
+ALIGN_TOP = "top"
+ALIGN_BOTTOM = "bottom"
 ALIGN_CENTER = "center"
-ALIGN_END = "end"
-ALIGNMENTS = (ALIGN_START, ALIGN_CENTER, ALIGN_END)
+ALIGNS_X = (ALIGN_LEFT, ALIGN_CENTER, ALIGN_RIGHT)
+ALIGNS_Y = (ALIGN_TOP, ALIGN_CENTER, ALIGN_BOTTOM)
 ORIENTATION_ROW = "row"
 ORIENTATION_STACKED = "stacked"
 ORIENTATIONS = (ORIENTATION_ROW, ORIENTATION_STACKED)
@@ -64,8 +66,8 @@ MAX_DISK_LABEL_LENGTH = 32
 
 DEFAULT_ENABLED = False
 DEFAULT_GPU_CARD = GPU_CARD_AUTO
-DEFAULT_EDGE = EDGE_TOP
-DEFAULT_ALIGNMENT = ALIGN_END
+DEFAULT_ALIGN_X = ALIGN_RIGHT
+DEFAULT_ALIGN_Y = ALIGN_TOP
 DEFAULT_ORIENTATION = ORIENTATION_ROW
 DEFAULT_MARGIN_TOP = 40
 DEFAULT_MARGIN_RIGHT = 20
@@ -82,11 +84,14 @@ TEMP_PREFIX = ".sysmon-"
 QUARANTINE_KIND = "sysmon config"  # log wording: "Corrupt sysmon config ..."
 
 _BOOL_FIELDS = ("enabled",) + tuple(METRIC_FIELD_PREFIX + name for name in METRICS)
-_STR_FIELDS = ("gpu_card", "edge", "alignment", "orientation")
+_STR_FIELDS = ("gpu_card", "align_x", "align_y", "orientation")
 _MARGIN_FIELDS = tuple(MARGIN_FIELD_PREFIX + side for side in MARGIN_SIDES)
 _SIZE_FIELDS = ("width", "height")
 _TYPED_FIELDS = ((bool, _BOOL_FIELDS), (str, _STR_FIELDS), (int, _MARGIN_FIELDS + _SIZE_FIELDS))
-_CHOICES = (("edge", EDGES), ("alignment", ALIGNMENTS), ("orientation", ORIENTATIONS))
+_CHOICES = (("align_x", ALIGNS_X), ("align_y", ALIGNS_Y), ("orientation", ORIENTATIONS))
+LEGACY_EDGE_KEY = "edge"  # removed setting, migrated by _migrate_edge
+_LEGACY_EDGES_Y = (ALIGN_TOP, ALIGN_BOTTOM)
+_LEGACY_EDGES_X = (ALIGN_LEFT, ALIGN_RIGHT)
 
 
 class SysmonConfigError(ValueError):
@@ -110,6 +115,23 @@ def _optional(data: Any, key: str, kind: type, default: Any) -> Any:
     if key not in data:
         return default
     return _field(data, key, kind)
+
+
+def _migrate_edge(data: dict[str, Any]) -> dict[str, Any]:
+    """Shallow copy of ``data`` with a legacy ``edge`` key folded into the aligns.
+
+    top/bottom set ``align_y``; left/right set ``align_x`` and centre
+    ``align_y``. Any other value (even a non-string) is simply dropped so a
+    stray edge never makes loading fail.
+    """
+    migrated = dict(data)
+    edge = migrated.pop(LEGACY_EDGE_KEY, None)
+    if edge in _LEGACY_EDGES_Y:
+        migrated["align_y"] = edge
+    elif edge in _LEGACY_EDGES_X:
+        migrated["align_x"] = edge
+        migrated["align_y"] = ALIGN_CENTER
+    return migrated
 
 
 def _optional_number(data: Any, key: str, default: float) -> float:
@@ -163,8 +185,8 @@ class SysmonConfig:
     show_disks: bool = True
     disks: tuple[DiskSpec, ...] = ()
     gpu_card: str = DEFAULT_GPU_CARD
-    edge: str = DEFAULT_EDGE
-    alignment: str = DEFAULT_ALIGNMENT
+    align_x: str = DEFAULT_ALIGN_X
+    align_y: str = DEFAULT_ALIGN_Y
     orientation: str = DEFAULT_ORIENTATION
     margin_top: int = DEFAULT_MARGIN_TOP
     margin_right: int = DEFAULT_MARGIN_RIGHT
@@ -188,6 +210,8 @@ class SysmonConfig:
         """Build from JSON data; missing keys take defaults, wrong types raise."""
         if not isinstance(data, dict):
             raise SysmonConfigError("sysmon config must be an object")
+        if LEGACY_EDGE_KEY in data:
+            data = _migrate_edge(data)
         defaults = cls()
         values: dict[str, Any] = {}
         for kind, names in _TYPED_FIELDS:
@@ -217,6 +241,8 @@ class SysmonConfig:
         if self.gpu_card != GPU_CARD_AUTO and not GPU_CARD_RE.fullmatch(self.gpu_card):
             found.append(f"gpu_card must be {GPU_CARD_AUTO!r} or like 'card0', "
                          f"got {self.gpu_card!r}")
+        if self.align_x == self.align_y == ALIGN_CENTER:
+            found.append("align_x and align_y cannot both be center")
         return found
 
     def _range_problems(self) -> list[str]:

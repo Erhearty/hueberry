@@ -192,8 +192,8 @@ def test_toggle(rec):
 def test_apply_returns_problems_without_changes(rec):
     """An invalid config is rejected: nothing saved, written or restarted."""
     ctl = make(rec)
-    problems = ctl.apply(SysmonConfig(edge="nowhere"))
-    assert problems and "edge" in problems[0]
+    problems = ctl.apply(SysmonConfig(align_x="nowhere"))
+    assert problems and "align_x" in problems[0]
     assert rec.saves == [] and rec.writes == []
     assert ctl.config == rec.stored
 

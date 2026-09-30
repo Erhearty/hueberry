@@ -40,3 +40,11 @@ UI for openrazer. Main goals are:
 - Macro recording and editing
 - Macro assignement to any key
 <!-- generated:end cap:system-intent -->
+
+<!-- generated:start comp:sysmon-overlay -->
+- **Sysmon Overlay (Waybar + collector)** (`sysmon-overlay`) - backend component. System monitor overlay: an external `waybar` child process (own session/process group, pid in $XDG_RUNTIME_DIR/hueberry/sysmon.pid) spawned and managed by RazerUI's SysmonController (hueberry/sysmon/controller.py). hueberry/sysmon/waybar.py writes its config under $XDG_CONFIG_HOME/hueberry/sysmon with a `custom/sysmon` module that runs `python -m hueberry.sysmon.collector --config PATH`; the collector reads /proc and /sys and prints one JSON metrics line per interval for Waybar to draw.
+<!-- generated:end comp:sysmon-overlay -->
+
+<!-- generated:start comp:sysmon -->
+- **Sysmon** (`sysmon`) - custom component.
+<!-- generated:end comp:sysmon -->

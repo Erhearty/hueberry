@@ -211,8 +211,10 @@ GPU and VRAM are read from the AMD drm sysfs files (`gpu_busy_percent`,
   - *Display* – Show / Hide.
   - *Data* – a checkbox per metric, a disk table (device, label, max MB/s;
     pre-filled from the detected disks) and the GPU card (*auto* or `cardN`).
-  - *Position* – edge (top/bottom/left/right), alignment (start/center/end),
-    margins, and width/height (`0` = auto).
+  - *Position* – *Horizontal position* (left/center/right) and *Vertical position*
+    (top/center/bottom) – e.g. Right + Top is the top-right corner; Center + Center is
+    not allowed – margins, and width/height (`0` = auto; width applies only to
+    left/right-side placements, height only to top/bottom placements).
   - *Orientation* – one row or stacked.
   - *Toggle key* – help text and a *Bind a device key…* button that opens Macros.
 - **Show / hide** from the page, the tray menu's *System monitor* checkbox,

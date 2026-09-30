@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 
 from hueberry.sysmon import collector
 from hueberry.sysmon.config import (
-    ALIGN_CENTER, ALIGN_END, ALIGN_START, EDGE_BOTTOM, EDGE_LEFT, EDGE_RIGHT, EDGE_TOP,
+    ALIGN_BOTTOM, ALIGN_CENTER, ALIGN_LEFT, ALIGN_RIGHT, ALIGN_TOP,
     GPU_CARD_AUTO, GPU_CARD_RE, MARGIN_SIDES, MAX_MARGIN, MAX_SIZE_PX, MIN_MARGIN, MIN_SIZE_PX,
     DiskSpec,
 )
@@ -46,9 +46,8 @@ COL_DEVICE, COL_LABEL, COL_MAX = range(DISK_COLUMN_COUNT)
 DEFAULT_MAX_TEXT = format(collector.DEFAULT_DISK_MAX_MBPS, "g")
 DISK_MAX_INVALID_TEXT = "disk row {row}: max MB/s {value!r} is not a number"
 GPU_AUTO_TEXT = "Automatic"
-EDGE_CHOICES = ((EDGE_TOP, "Top"), (EDGE_BOTTOM, "Bottom"), (EDGE_LEFT, "Left"),
-                (EDGE_RIGHT, "Right"))
-ALIGN_CHOICES = ((ALIGN_START, "Start"), (ALIGN_CENTER, "Center"), (ALIGN_END, "End"))
+ALIGN_X_CHOICES = ((ALIGN_LEFT, "Left"), (ALIGN_CENTER, "Center"), (ALIGN_RIGHT, "Right"))
+ALIGN_Y_CHOICES = ((ALIGN_TOP, "Top"), (ALIGN_CENTER, "Center"), (ALIGN_BOTTOM, "Bottom"))
 AUTO_SIZE_TEXT = "Auto"
 PIXEL_SUFFIX = " px"
 KEY_HELP_TEXT = (
@@ -135,8 +134,8 @@ def _spin(page: Any, low: int, high: int, name: str, auto: bool = False) -> QSpi
 
 
 def _create_position(page: Any) -> None:
-    page.edge_combo = _combo(page, EDGE_CHOICES, "Screen edge")
-    page.align_combo = _combo(page, ALIGN_CHOICES, "Alignment along the edge")
+    page.align_x_combo = _combo(page, ALIGN_X_CHOICES, "Horizontal position")
+    page.align_y_combo = _combo(page, ALIGN_Y_CHOICES, "Vertical position")
     page.margin_spins = {side: _spin(page, MIN_MARGIN, MAX_MARGIN, f"{side.capitalize()} margin")
                          for side in MARGIN_SIDES}
     page.width_spin = _spin(page, MIN_SIZE_PX, MAX_SIZE_PX, "Width (0 = automatic)", auto=True)
@@ -218,8 +217,9 @@ def _data_card(page: Any) -> QFrame:
 def _position_card(page: Any) -> QFrame:
     card, layout = layouts.section_card(POSITION_TITLE, page)
     form = _form(layout)
-    form.addRow("&Edge", page.edge_combo)
-    form.addRow("A&lignment", page.align_combo)
+    # "&Horizontal"/"&Vertical" would clash with &Hide and &VRAM.
+    form.addRow("Hori&zontal position", page.align_x_combo)
+    form.addRow("Vertica&l position", page.align_y_combo)
     for side, spin in page.margin_spins.items():
         form.addRow(f"{side.capitalize()} margin", spin)
     form.addRow("W&idth", page.width_spin)
