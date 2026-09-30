@@ -3,9 +3,17 @@
 """Single-instance guard: a second launch asks the first to show its window.
 
 The first Hueberry listens on a private local socket; a later launch connects
-to it, sends ``show`` and exits. A socket left behind by a crashed instance
-refuses connections and is removed before listening again; one that accepts
-(another instance won the race) is left alone and notified instead.
+to it, sends one message and exits. Messages understood by the listener:
+
+- ``show``: raise the window (``show_requested``);
+- ``ping``: probe only (``--background``), nothing happens;
+- ``toggle-sysmon``: toggle the system monitor (``toggle_sysmon_requested``),
+  sent by a ``--toggle-sysmon`` launch or by the macro engine via
+  :mod:`hueberry.gui_link`.
+
+A socket left behind by a crashed instance refuses connections and is removed
+before listening again; one that accepts (another instance won the race) is
+left alone and notified instead.
 """
 
 import logging
@@ -15,28 +23,40 @@ from pathlib import Path
 from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtNetwork import QLocalServer, QLocalSocket
 
+from hueberry import gui_link
+from hueberry.gui_link import (
+    RUNTIME_DIR_FALLBACK,
+    SOCKET_DIR_NAME,
+    SOCKET_FILE_NAME,
+    default_server_name,
+)
+
+__all__ = [
+    "PING_MESSAGE",
+    "RUNTIME_DIR_FALLBACK",
+    "SHOW_MESSAGE",
+    "SOCKET_DIR_NAME",
+    "SOCKET_FILE_NAME",
+    "TOGGLE_SYSMON_MESSAGE",
+    "SingleInstance",
+    "default_server_name",
+]
+
 logger = logging.getLogger(__name__)
 
-RUNTIME_DIR_FALLBACK = "/run/user/{uid}"
-SOCKET_DIR_NAME = "hueberry"
-SOCKET_FILE_NAME = "gui.sock"
 SOCKET_DIR_MODE = 0o700
 SHOW_MESSAGE = b"show\n"
 PING_MESSAGE = b"ping\n"  # probe only: detect a live instance without raising it
+TOGGLE_SYSMON_MESSAGE = gui_link.action_message(gui_link.APP_ACTION_TOGGLE_SYSMON)
 CONNECT_TIMEOUT_MS = 500
 WRITE_TIMEOUT_MS = 500
 
 
-def default_server_name() -> str:
-    """Absolute socket path in the per-user runtime dir (private, tmpfs)."""
-    runtime_dir = os.environ.get("XDG_RUNTIME_DIR") or RUNTIME_DIR_FALLBACK.format(uid=os.getuid())
-    return str(Path(runtime_dir) / SOCKET_DIR_NAME / SOCKET_FILE_NAME)
-
-
 class SingleInstance(QObject):
-    """Owns the instance socket; ``show_requested`` fires when another launch pings us."""
+    """Owns the instance socket; its signals fire when another launch or client messages us."""
 
     show_requested = pyqtSignal()
+    toggle_sysmon_requested = pyqtSignal()
 
     def __init__(self, name: str | None = None, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -44,15 +64,19 @@ class SingleInstance(QObject):
         self._server: QLocalServer | None = None
         self._message = SHOW_MESSAGE
 
-    def notify_or_listen(self, show: bool = True) -> bool:
+    def notify_or_listen(self, show: bool = True, message: bytes | None = None) -> bool:
         """True when another instance is running (the caller should exit).
 
         With ``show`` it is asked to show its window; without (``--background``)
-        it is only probed. Otherwise start listening and return False.
+        it is only probed. A given ``message`` (e.g. ``TOGGLE_SYSMON_MESSAGE``)
+        is sent instead of either. Otherwise start listening and return False.
         """
-        self._message = SHOW_MESSAGE if show else PING_MESSAGE
+        if message is not None:
+            self._message = message
+        else:
+            self._message = SHOW_MESSAGE if show else PING_MESSAGE
         if self._listen() is None:
-            logger.info("Hueberry is already running; asked it to show its window")
+            logger.info("Hueberry is already running; notified it")
             return True
         return False
 
@@ -106,10 +130,12 @@ class SingleInstance(QObject):
                 self._on_message(connection)
 
     def _on_message(self, connection: QLocalSocket) -> None:
-        """Emit ``show_requested`` for a ``show`` message; a ``ping`` is ignored."""
+        """Emit the signal matching the message; a ``ping`` is ignored."""
         data = bytes(connection.readAll())
         connection.close()
-        if data.startswith(SHOW_MESSAGE.strip()):
+        if data.startswith(TOGGLE_SYSMON_MESSAGE):
+            self.toggle_sysmon_requested.emit()
+        elif data.startswith(SHOW_MESSAGE.strip()):
             self.show_requested.emit()
 
     def close(self) -> None:

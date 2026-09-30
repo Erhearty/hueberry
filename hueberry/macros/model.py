@@ -2,9 +2,10 @@
 # SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Macro data model: steps, macros, per-device macro sets and validation.
 
-The model is deliberately closed: only key and delay steps exist, so a macro
-file can never make the engine run programs (``shell`` steps are rejected on
-load, not merely ignored). Limits bound how long a macro can keep synthetic
+The model is deliberately closed: only key, delay and allow-listed app-action
+steps exist (an app step can only name an action from ``gui_link.APP_ACTIONS``),
+so a macro file can never make the engine run programs (``shell`` steps are
+still rejected on load, not merely ignored). Limits bound how long a macro can keep synthetic
 input flowing and how much a hostile or corrupt file can make us allocate.
 """
 
@@ -13,6 +14,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from hueberry import gui_link
 from hueberry.macros import keycodes
 
 MAX_DELAY_MS = 10_000
@@ -22,6 +24,7 @@ MAX_NAME_LENGTH = 100
 MAX_ID_LENGTH = 64
 STEP_KEY = "key"
 STEP_DELAY = "delay"
+STEP_APP = "app"
 ACTION_PRESS = "press"
 ACTION_RELEASE = "release"
 ACTION_TAP = "tap"
@@ -111,16 +114,36 @@ class DelayStep:
         return []
 
 
-Step = KeyStep | DelayStep
+@dataclass(frozen=True)
+class AppActionStep:
+    """Ask the running Hueberry window to perform one allow-listed app action."""
+
+    action: str
+
+    def to_dict(self) -> dict:
+        """JSON-ready form."""
+        return {"type": STEP_APP, "action": self.action}
+
+    def problems(self) -> list[str]:
+        """Human-readable reasons this step is invalid ([] when valid)."""
+        if self.action not in gui_link.APP_ACTIONS:
+            return [f"unknown app action {self.action!r}"]
+        return []
+
+
+Step = KeyStep | DelayStep | AppActionStep
+STEP_CLASSES = (KeyStep, DelayStep, AppActionStep)
 
 
 def step_from_dict(data: Any) -> Step:
-    """Parse one step; any type other than key/delay (e.g. ``shell``) is refused."""
+    """Parse one step; any type other than key/delay/app (e.g. ``shell``) is refused."""
     kind = data.get("type") if isinstance(data, dict) else None
     if kind == STEP_KEY:
         return KeyStep(_field(data, "code", str), _field(data, "action", str))
     if kind == STEP_DELAY:
         return DelayStep(_field(data, "ms", int))
+    if kind == STEP_APP:
+        return AppActionStep(_field(data, "action", str))
     raise ModelError(f"unsupported step type: {kind!r}")
 
 
@@ -189,8 +212,10 @@ class Macro:
         if len(self.steps) > MAX_STEPS:
             found.append(f"{len(self.steps)} steps, limit is {MAX_STEPS}")
         found.extend(self._repeat_problems())
+        if self.repeat_mode == REPEAT_TOGGLE and any(isinstance(step, AppActionStep) for step in self.steps):
+            found.append("app-action steps cannot loop in toggle mode (would flood the window)")
         for step in self.steps:
-            if not isinstance(step, (KeyStep, DelayStep)):
+            if not isinstance(step, STEP_CLASSES):
                 found.append(f"unsupported step {step!r}")
                 continue
             found.extend(step.problems())

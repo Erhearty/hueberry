@@ -39,6 +39,8 @@ see [LICENSE](LICENSE).
 
   This provides `openrazer-daemon` and `python3-openrazer`. Remember to add your
   user to the `plugdev` group and log out/in as described in the OpenRazer docs.
+- Optional: `waybar`, for the [system monitor overlay](#system-monitor-sysmon).
+  Without it the *Sysmon* page reports "waybar not found".
 
 ## Virtual environments
 
@@ -164,9 +166,12 @@ button) to finish; the Pause key itself is not recorded.
   devices) conflicts with Hueberry's macros. If another program already holds
   the device, Hueberry shows it as **busy** and leaves it alone; turn off the
   other tool's macro mode and reload.
-- Macro steps are key/button presses, releases, taps and delays only. Running
-  shell commands is intentionally unsupported, and a `macros.json` containing
-  such steps is rejected.
+- Macro steps are key/button presses, releases, taps, delays and *app actions*.
+  An app action step (*App action → Toggle system monitor*) runs one of a fixed
+  allow-list of Hueberry actions – currently only *Toggle system monitor* – and
+  is not allowed in *toggle* repeat macros. Running shell commands is
+  intentionally unsupported, and a `macros.json` containing shell/exec steps is
+  rejected.
 
 ### Repeat modes
 
@@ -188,6 +193,43 @@ the macro engine reloads (for example after you save macros) or when the device
 is released. While one macro plays, the triggers of other macros on the same
 input node of the device are ignored (a device with several nodes, e.g. a
 mouse with a keyboard interface, can play one macro per node at once).
+
+## System monitor (Sysmon)
+
+Sysmon is a small Waybar overlay (layer *overlay*, click-through) managed by
+Hueberry. It shows CPU %, GPU busy %, VRAM used/total, RAM used/total and, per
+disk, read/write activity as a percentage of a configured maximum MB/s:
+
+```
+CPU 12%  GPU 3%  VRAM 512/8176MiB  RAM 5.1G/31.2G  NVMe R:0% W:1%
+```
+
+GPU and VRAM are read from the AMD drm sysfs files (`gpu_busy_percent`,
+`mem_info_vram_*`); a source that is unavailable shows `n/a`. Requires `waybar`.
+
+- **Sysmon page** (header button, or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Y</kbd>):
+  - *Display* – Show / Hide.
+  - *Data* – a checkbox per metric, a disk table (device, label, max MB/s;
+    pre-filled from the detected disks) and the GPU card (*auto* or `cardN`).
+  - *Position* – *Horizontal position* (left/center/right) and *Vertical position*
+    (top/center/bottom) – e.g. Right + Top is the top-right corner; Center + Center is
+    not allowed – margins, and width/height (`0` = auto; width applies only to
+    left/right-side placements, height only to top/bottom placements).
+  - *Orientation* – one row or stacked.
+  - *Toggle key* – help text and a *Bind a device key…* button that opens Macros.
+- **Show / hide** from the page, the tray menu's *System monitor* checkbox,
+  `hueberry --toggle-sysmon` (starts Hueberry in the background if it is not
+  running), or a device key bound to a macro with an
+  *App action → Toggle system monitor* step. Whether the overlay is shown is
+  remembered and restored at launch; quitting Hueberry stops the overlay.
+- **Files**: settings in `~/.config/hueberry/sysmon.json` (or
+  `$XDG_CONFIG_HOME/hueberry/sysmon.json`). The generated Waybar config is
+  `~/.config/hueberry/sysmon/config.json` (regenerated on every apply); the
+  style is `~/.config/hueberry/sysmon/style.css`, copied once and never
+  overwritten, so it is safe to edit.
+- Sysmon replaces a hand-run Waybar sysmon setup under `~/.config/waybar`: stop
+  that Waybar instance, or you get two overlays. Hueberry never modifies
+  `~/.config/waybar`.
 
 ## Development and tests
 

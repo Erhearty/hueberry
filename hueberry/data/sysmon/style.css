@@ -1,0 +1,5 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* SPDX-FileCopyrightText: 2025 Hueberry contributors */
+* { font-family: "DejaVu Sans Mono"; font-size: 12px; }
+window#waybar { background: transparent; }
+#custom-sysmon { color: #ffffff; padding: 4px 12px; background: rgba(0, 0, 0, 0.55); border-radius: 8px; }

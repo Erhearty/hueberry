@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 TOGGLE_TEXT = "Show/Hide Hueberry"
 CLOSE_TO_TRAY_TEXT = "Keep running in the background when closed"
 AUTOSTART_TEXT = "Start Hueberry at login"
+SYSMON_TEXT = "System monitor"
 QUIT_TEXT = "Quit"
 TOOLTIP = "Hueberry"
 STATUS_PREFIX = "Macros: "
@@ -41,6 +42,7 @@ class TrayController(QObject):
     toggle_window_requested = pyqtSignal()
     quit_requested = pyqtSignal()
     status_message = pyqtSignal(str)
+    sysmon_toggled = pyqtSignal(bool)
 
     def __init__(
         self,
@@ -72,18 +74,26 @@ class TrayController(QObject):
         self.autostart_action = QAction(AUTOSTART_TEXT, self.menu)
         self.autostart_action.setCheckable(True)
         self.autostart_action.setChecked(bool(is_autostart_enabled()))
+        self.sysmon_action = QAction(SYSMON_TEXT, self.menu)
+        self.sysmon_action.setCheckable(True)
         self.quit_action = QAction(QUIT_TEXT, self.menu)
+        self._populate_menu()
+
+    def _populate_menu(self) -> None:
+        """Add the built actions to the menu and wire their signals."""
         self.menu.addAction(self.toggle_action)
         self.menu.addAction(self.status_action)
         self.menu.addSeparator()
         self.menu.addAction(self.close_to_tray_action)
         self.menu.addAction(self.autostart_action)
+        self.menu.addAction(self.sysmon_action)
         self.menu.addSeparator()
         self.menu.addAction(self.quit_action)
         self.toggle_action.triggered.connect(self.toggle_window_requested)
         self.quit_action.triggered.connect(self.quit_requested)
         self.close_to_tray_action.toggled.connect(self._on_close_to_tray)
         self.autostart_action.toggled.connect(self._on_autostart)
+        self.sysmon_action.toggled.connect(self.sysmon_toggled)
 
     def _build_icon(self) -> None:
         self.tray_icon = QSystemTrayIcon(icon_for_type(TRAY_ICON_TYPE), self)
@@ -101,6 +111,12 @@ class TrayController(QObject):
         self.status_action.setText(STATUS_PREFIX + text)
         if self.tray_icon is not None:
             self.tray_icon.setToolTip(f"{TOOLTIP} \u2013 {STATUS_PREFIX}{text}")
+
+    def set_sysmon_checked(self, checked: bool) -> None:
+        """Sync the System monitor check state without emitting sysmon_toggled."""
+        self.sysmon_action.blockSignals(True)
+        self.sysmon_action.setChecked(checked)
+        self.sysmon_action.blockSignals(False)
 
     def _on_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason in ACTIVATE_REASONS:

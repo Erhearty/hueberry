@@ -19,8 +19,9 @@ import threading
 import time
 from typing import Any, Callable, Iterable
 
+from hueberry import gui_link
 from hueberry.macros import keycodes
-from hueberry.macros.model import ACTION_PRESS, ACTION_RELEASE, ACTION_TAP, DelayStep
+from hueberry.macros.model import ACTION_PRESS, ACTION_RELEASE, ACTION_TAP, AppActionStep, DelayStep
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +41,9 @@ def start_daemon_thread(target: Callable[[], None]) -> threading.Thread:
 
 
 class Player:
-    """Writes macro steps to ``uinput``; ``sleep``, ``start_thread`` and ``clock`` are injectable.
+    """Writes macro steps to ``uinput``; ``sleep``, ``start_thread``, ``clock`` and ``notify`` are injectable.
+
+    ``notify`` delivers an app-action step's action name to the GUI (returns success).
 
     ``lock`` serialises whole reports (event + SYN) against the remapper's
     passthrough writes on the same uinput device.
@@ -52,6 +55,8 @@ class Player:
         sleep: Callable[[float], Any] | None = None,
         start_thread: Callable[[Callable[[], None]], Any] = start_daemon_thread,
         clock: Callable[[], float] = time.monotonic,
+        *,
+        notify: Callable[[str], bool] = gui_link.send_action,
     ) -> None:
         from evdev import ecodes  # lazy: optional dependency
 
@@ -61,6 +66,7 @@ class Player:
         self._sleep = sleep if sleep is not None else self._cancel.wait  # cancellable delays
         self._start_thread = start_thread
         self._clock = clock
+        self._notify = notify
         self._state_lock = threading.Lock()
         self._playing = False
         self._current: Any = None
@@ -134,6 +140,9 @@ class Player:
         if isinstance(step, DelayStep):
             self._sleep(step.ms / MS_PER_S)
             return
+        if isinstance(step, AppActionStep):
+            self._notify_app(step.action)
+            return
         code = keycodes.code_for(step.code)
         if code is None:
             logger.warning("Skipping unknown key %s", step.code)
@@ -144,6 +153,16 @@ class Player:
         if step.action in RELEASE_ACTIONS:
             self._emit(code, keycodes.VALUE_RELEASE)
             pressed.discard(code)
+
+    def _notify_app(self, action: str) -> None:
+        """Send an app action to the GUI (never under ``lock``); failures only log."""
+        try:
+            delivered = self._notify(action)
+        except Exception:  # noqa: BLE001 - a GUI hiccup must never kill the worker
+            logger.exception("App action %s failed", action)
+            return
+        if not delivered:
+            logger.warning("App action %s was not delivered", action)
 
     def _emit(self, code: int, value: int) -> None:
         with self.lock:

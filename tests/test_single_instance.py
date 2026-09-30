@@ -6,7 +6,10 @@ import socket
 
 import pytest
 
-from hueberry.single_instance import SingleInstance, default_server_name
+from hueberry import gui_link
+from hueberry.single_instance import TOGGLE_SYSMON_MESSAGE, SingleInstance, default_server_name
+
+SIGNAL_TIMEOUT_MS = 2000
 
 
 @pytest.fixture
@@ -67,6 +70,35 @@ def test_live_socket_is_not_removed(qtbot, name):
         assert second._server is None
         with qtbot.waitSignal(first.show_requested, timeout=2000):
             assert third.notify_or_listen() is True  # first still owns the socket
+    finally:
+        first.close()
+
+
+def test_toggle_sysmon_message_toggles_without_showing(qtbot, name):
+    """A --toggle-sysmon second launch toggles the monitor and does not raise the window."""
+    first = SingleInstance(name)
+    second = SingleInstance(name)
+    shown = []
+    first.show_requested.connect(lambda: shown.append(True))
+    try:
+        assert first.notify_or_listen() is False
+        with qtbot.waitSignal(first.toggle_sysmon_requested, timeout=SIGNAL_TIMEOUT_MS):
+            assert second.notify_or_listen(message=TOGGLE_SYSMON_MESSAGE) is True
+        assert shown == []
+    finally:
+        first.close()
+
+
+def test_stdlib_client_reaches_live_server(qtbot, name):
+    """gui_link's plain AF_UNIX client talks to the QLocalServer (engine -> GUI path)."""
+    first = SingleInstance(name)
+    shown = []
+    first.show_requested.connect(lambda: shown.append(True))
+    try:
+        assert first.notify_or_listen() is False
+        with qtbot.waitSignal(first.toggle_sysmon_requested, timeout=SIGNAL_TIMEOUT_MS):
+            assert gui_link.send_message(TOGGLE_SYSMON_MESSAGE, path=first._server.fullServerName())
+        assert shown == []
     finally:
         first.close()
 

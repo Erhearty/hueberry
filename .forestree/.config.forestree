@@ -63,6 +63,51 @@
       "id": "macro-engine",
       "name": "Macro Engine",
       "type": "backend"
+    },
+    {
+      "canvas": {
+        "widgets": [
+          {
+            "data": {
+              "text": "System monitor overlay: an external `waybar` child process (own session/process group, pid in $XDG_RUNTIME_DIR/hueberry/sysmon.pid) spawned and managed by RazerUI's SysmonController (hueberry/sysmon/controller.py). hueberry/sysmon/waybar.py writes its config under $XDG_CONFIG_HOME/hueberry/sysmon with a `custom/sysmon` module that runs `python -m hueberry.sysmon.collector --config PATH`; the collector reads /proc and /sys and prints one JSON metrics line per interval for Waybar to draw."
+            },
+            "h": 180,
+            "id": "widget-1790745315171-0",
+            "title": "Intent & Scope Description",
+            "type": "text",
+            "w": 350,
+            "x": 30,
+            "y": 30
+          },
+          {
+            "data": {
+              "techs": [
+                "Waybar (external binary)",
+                "Python (hueberry.sysmon.collector)",
+                "Linux /proc and /sys"
+              ]
+            },
+            "h": 200,
+            "id": "widget-1790745315178-1",
+            "title": "Tech Stack Profiles",
+            "type": "techstack",
+            "w": 350,
+            "x": 60,
+            "y": 60
+          }
+        ]
+      },
+      "id": "sysmon-overlay",
+      "name": "Sysmon Overlay (Waybar + collector)",
+      "type": "backend"
+    },
+    {
+      "canvas": {
+        "widgets": []
+      },
+      "id": "sysmon",
+      "name": "Sysmon",
+      "type": "custom"
     }
   ],
   "connections": [
@@ -75,6 +120,16 @@
       "from": "razerui",
       "protocol": "Unix domain socket IPC (child process spawned via subprocess)",
       "to": "macro-engine"
+    },
+    {
+      "from": "macro-engine",
+      "protocol": "Unix domain socket ($XDG_RUNTIME_DIR/hueberry/gui.sock, GUI single-instance socket; newline-terminated allow-listed action names, e.g. toggle-sysmon)",
+      "to": "razerui"
+    },
+    {
+      "from": "razerui",
+      "protocol": "Subprocess (spawns/stops waybar child in its own process group; pid file $XDG_RUNTIME_DIR/hueberry/sysmon.pid; writes Waybar config + sysmon.json)",
+      "to": "sysmon-overlay"
     }
   ],
   "definitions": [],
@@ -326,6 +381,10 @@
     "razerui": {
       "x": 112,
       "y": 286
+    },
+    "sysmon": {
+      "x": 460,
+      "y": 200
     }
   },
   "version": "1.0.0"

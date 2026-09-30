@@ -49,10 +49,11 @@ class FakeWindow:
 
     created: list = []
 
-    def __init__(self, service, engine=None, tray=None):
+    def __init__(self, service, engine=None, tray=None, sysmon=None):
         self.service = service
         self.engine = engine
         self.tray = tray
+        self.sysmon = sysmon
         self.shown = False
         self.engine_started = 0
         self.actions = []
@@ -94,11 +95,14 @@ class FakeInstance:
 
     def __init__(self):
         self.show_requested = FakeSignal()
+        self.toggle_sysmon_requested = FakeSignal()
         self.closed = False
+        self.message = None
         FakeInstance.created.append(self)
 
-    def notify_or_listen(self, show=True):
+    def notify_or_listen(self, show=True, message=None):
         self.show = show
+        self.message = message
         return FakeInstance.running
 
     def close(self):
@@ -133,10 +137,50 @@ class FakeEngine:
         self.stops += 1
 
 
+class FakeSysmon:
+    """Stands in for SysmonController; records calls in order in ``calls``.
+
+    ``enabled`` mimics the persisted flag: ``restore`` starts it when set.
+    """
+
+    created: list = []
+    enabled = False
+
+    def __init__(self, parent=None):
+        self.parent = parent
+        self.calls = []
+        self.running = False
+        FakeSysmon.created.append(self)
+
+    def is_running(self):
+        return self.running
+
+    def start(self):
+        self.calls.append("start")
+        self.running = True
+        return True
+
+    def toggle(self):
+        self.calls.append("toggle")
+        self.running = not self.running
+        return self.running
+
+    def restore(self):
+        self.calls.append("restore")
+        if FakeSysmon.enabled:
+            self.running = True
+        return self.running
+
+    def shutdown(self):
+        self.calls.append("shutdown")
+        self.running = False
+
+
 def install(monkeypatch, app_module, *, tray_available=True, running=False):
     """Patch every collaborator of ``app_module.main`` with the fakes above."""
-    for cls in (FakeApp, FakeWindow, FakeInstance, FakeEngine):
+    for cls in (FakeApp, FakeWindow, FakeInstance, FakeEngine, FakeSysmon):
         monkeypatch.setattr(cls, "created", [])
+    monkeypatch.setattr(FakeSysmon, "enabled", False)
     monkeypatch.setattr(FakePool, "waits", [])
     monkeypatch.setattr(FakeTray, "available", tray_available)
     monkeypatch.setattr(FakeInstance, "running", running)
@@ -147,6 +191,8 @@ def install(monkeypatch, app_module, *, tray_available=True, running=False):
     monkeypatch.setattr(app_module, "TrayController", FakeTray)
     monkeypatch.setattr(app_module, "Settings", lambda: "settings")
     monkeypatch.setattr(app_module, "MacroEngineService", FakeEngine)
+    monkeypatch.setattr(app_module, "SysmonController", FakeSysmon)
+    monkeypatch.setattr(app_module, "install_wheel_guard", lambda app: None)
     themed = []
     monkeypatch.setattr(app_module, "apply_theme", themed.append)
     return themed

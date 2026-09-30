@@ -32,7 +32,7 @@ hueberry = "hueberry.app:main"
 include = ["hueberry*"]
 
 [tool.setuptools.package-data]
-"hueberry.data" = ["devicemaps/*.json", "devicemaps/*.svg"]
+"hueberry.data" = ["devicemaps/*.json", "devicemaps/*.svg", "sysmon/*.css"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
