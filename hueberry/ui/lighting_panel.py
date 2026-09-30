@@ -5,11 +5,10 @@
 Backend calls that touch the device are submitted with
 ``worker.run_async(...)`` - looked up on the :mod:`hueberry.ui.worker` module at
 call time, so tests can monkeypatch ``worker.run_async`` to run synchronously.
-Presets (the built-ins, then the user's from :mod:`hueberry.backend.preset_store`)
-are driven by ``lighting_state.shared_lighting_state()`` (so they come back
-after a restart), likewise looked up at call time; a running preset is stopped
-and forgotten (in the worker job, never on the UI thread) before any other
-effect is applied.
+Before an effect is applied the device is claimed away from other lighting
+(in the worker job, never on the UI thread). The effect Hueberry last applied
+to a zone is preselected and ``running_label`` says what runs on the device
+(see :mod:`hueberry.ui.lighting_restore`).
 """
 
 import logging
@@ -22,17 +21,15 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from hueberry.backend import animator, lighting_state, preset_store, presets
 from hueberry.backend.devices import ZoneInfo, list_zones
 from hueberry.backend.lighting import (
     EFFECTS, PARAM_COLOUR1, PARAM_COLOUR2, PARAM_DIRECTION, PARAM_TIME, REACTIVE_LONG,
     REACTIVE_MED, REACTIVE_SHORT, WAVE_LEFT, WAVE_RIGHT, Effect, LightingError, apply_effect,
     get_brightness, set_brightness, supported_effects, supports_brightness,
 )
-from hueberry.backend.effects import Preset
-from hueberry.ui import layouts, theme, worker
+from hueberry.ui import layouts, lighting_restore, theme, worker
 from hueberry.ui.colour_button import ColourButton
-from hueberry.ui.lighting_jobs import stop_preset_then_apply as _stop_preset_then_apply
+from hueberry.ui.lighting_jobs import claim_then_apply as _claim_then_apply
 
 logger = logging.getLogger(__name__)
 
@@ -47,13 +44,6 @@ ROW_ZONE = "zone"
 ROW_EFFECT = "effect"
 ROW_BRIGHTNESS = "brightness"
 PARAM_ROWS = (PARAM_COLOUR1, PARAM_COLOUR2, PARAM_TIME, PARAM_DIRECTION)
-PRESET_DATA_PREFIX = "preset:"  # effect combo data prefix of preset items
-PRESET_ERHEART = f"preset:{presets.PRESET_KEY}"  # effect combo data of the Erheart preset
-
-
-def preset_data(key: str) -> str:
-    """Effect combo data of the preset with ``key``."""
-    return f"{PRESET_DATA_PREFIX}{key}"
 
 
 def _choice_combo(choices: tuple[tuple[str, int], ...], parent: QWidget) -> QComboBox:
@@ -85,13 +75,10 @@ class LightingPanel(QWidget):
         self._labels: dict[str, QLabel] = {}
         self._writing = False  # a device write from this panel is pending
         self._brightness_queued = False  # brightness changed while a write was pending
-        self._presets: list[Preset] = list(presets.BUILTIN_PRESETS)
-        self._preset_error: str | None = None  # last preset load error, until reported
         self._build_widgets()
         self._build_layout()
         self._connect_signals()
         self._set_tab_order()
-        self._load_presets()
         self.set_device(None)
 
     # -- construction --------------------------------------------------------
@@ -101,6 +88,9 @@ class LightingPanel(QWidget):
         self.zone_combo.setAccessibleName("Lighting zone")
         self.effect_combo = QComboBox(self)
         self.effect_combo.setAccessibleName("Lighting effect")
+        self.running_label = QLabel(self)
+        self.running_label.setWordWrap(True)
+        theme.set_role(self.running_label, "muted")
         self.colour1_button = ColourButton("Primary colour", DEFAULT_COLOUR1, self)
         self.colour2_button = ColourButton("Secondary colour", DEFAULT_COLOUR2, self)
         self.speed_combo = _choice_combo(SPEED_CHOICES, self)
@@ -134,6 +124,7 @@ class LightingPanel(QWidget):
     def _build_layout(self) -> None:
         effect_card, effect_form = _card_form("Effect", self)
         brightness_card, brightness_form = _card_form("Brightness", self)
+        effect_form.addRow(self.running_label)
         for key, text, widget in self._rows():
             label = QLabel(text, self)
             label.setBuddy(widget)
@@ -191,77 +182,47 @@ class LightingPanel(QWidget):
         key = self.effect_combo.currentData()
         return EFFECTS.get(key) if key is not None else None
 
-    def selected_preset(self) -> Preset | None:
-        """The selected preset, or None when a plain effect (or nothing) is selected."""
-        data = self.effect_combo.currentData()
-        if not isinstance(data, str) or not data.startswith(PRESET_DATA_PREFIX):
-            return None
-        return preset_store.find_preset(data.removeprefix(PRESET_DATA_PREFIX), self._presets)
-
-    def preset_selected(self) -> bool:
-        """True when a preset is the selected effect."""
-        return self.selected_preset() is not None
-
     def _has_selection(self) -> bool:
-        return self.current_effect() is not None or self.preset_selected()
-
-    def _load_presets(self) -> None:
-        """Load built-in and user presets; a load error goes to ``status``."""
-        user, err = preset_store.load()
-        self._presets = preset_store.all_presets(user)
-        self._preset_error = err
-        if err:
-            logger.warning("Could not load user presets: %s", err)
-            self.status.emit(err)
-
-    def report_preset_error(self) -> None:
-        """Emit the last preset load error on ``status`` again, once (none: no-op).
-
-        The presets are first loaded in ``__init__``, before ``status`` is
-        connected; a corrupt file is moved aside then, so a reload would not
-        report it. Call this once ``status`` is connected.
-        """
-        error, self._preset_error = self._preset_error, None
-        if error:
-            self.status.emit(error)
-
-    def reload_presets(self) -> None:
-        """Re-read the presets, keeping the current selection when it still exists."""
-        current = self.effect_combo.currentData()
-        self._load_presets()
-        self._fill_effects(self.current_zone())
-        index = self.effect_combo.findData(current) if current is not None else -1
-        if index >= 0:
-            self.effect_combo.blockSignals(True)
-            self.effect_combo.setCurrentIndex(index)
-            self.effect_combo.blockSignals(False)
-        self._on_effect_changed()
-
-    def _offers_preset(self) -> bool:
-        try:
-            return animator.supports(self._dev)
-        except Exception:  # never let a device error break the panel
-            logger.warning("Could not check Erheart support", exc_info=True)
-            return False
+        return self.current_effect() is not None
 
     def _fill_effects(self, zone: ZoneInfo | None) -> None:
-        """Fill the effect combo with ``zone``'s effects, then the presets."""
+        """Fill the effect combo with ``zone``'s effects."""
         effects = supported_effects(self._dev, zone) if zone is not None else []
         self.effect_combo.blockSignals(True)
         self.effect_combo.clear()
         for effect in effects:
             self.effect_combo.addItem(effect.label, effect.key)
-        if zone is not None and self._offers_preset():
-            for preset in self._presets:
-                self.effect_combo.addItem(preset.label, preset_data(preset.key))
         self.effect_combo.blockSignals(False)
 
     def _on_zone_changed(self, _index: int = 0) -> None:
         zone = self.current_zone()
         self._fill_effects(zone)
+        self._preselect(zone)
         self.zone_combo.setEnabled(bool(self._zones))
         self._update_brightness(zone)
         self._on_effect_changed()
+        self.refresh_running()
+
+    def _preselect(self, zone: ZoneInfo | None) -> None:
+        """Show the effect last applied to ``zone`` (defaults when none is recorded)."""
+        record = lighting_restore.record_for(self._dev, zone)
+        key, params = record if record is not None else (None, {})
+        if key is not None:
+            lighting_restore.select_data(self.effect_combo, key)
+        lighting_restore.set_colour_quietly(self.colour1_button,
+                                            params.get(PARAM_COLOUR1, DEFAULT_COLOUR1))
+        lighting_restore.set_colour_quietly(self.colour2_button,
+                                            params.get(PARAM_COLOUR2, DEFAULT_COLOUR2))
+        lighting_restore.select_data(self.speed_combo,
+                                     params.get(PARAM_TIME, SPEED_CHOICES[0][1]))
+        lighting_restore.select_data(self.direction_combo,
+                                     params.get(PARAM_DIRECTION, DIRECTION_CHOICES[0][1]))
+
+    def refresh_running(self) -> None:
+        """Say what runs on the device; hidden when nothing is known."""
+        text = lighting_restore.running_text(self._dev, self.current_zone())
+        self.running_label.setText(text or "")
+        self.running_label.setVisible(text is not None)
 
     def _on_effect_changed(self, _index: int = 0) -> None:
         effect = self.current_effect()
@@ -321,34 +282,16 @@ class LightingPanel(QWidget):
 
     def _on_apply(self) -> None:
         dev, zone, effect = self._dev, self.current_zone(), self.current_effect()
-        preset = self.selected_preset()
-        if dev is None or zone is None or (effect is None and preset is None):
+        if dev is None or zone is None or effect is None:
             self.status.emit("No lighting effect selected")
             return
         if self._writing:
             return
-        if preset is not None:
-            self._start_preset(dev, preset)
-            return
         params = self._collect_params()
         # apply_effect is looked up here, on this module, so tests can monkeypatch it
-        self._submit(partial(_stop_preset_then_apply, dev, zone, effect.key, params,
+        self._submit(partial(_claim_then_apply, dev, zone, effect.key, params,
                              apply_effect),
                      partial(self._on_apply_done, effect.label))
-
-    def _start_preset(self, dev: Any, preset: Preset) -> None:
-        """Start and remember ``preset`` on ``dev``; the animator's thread draws frames."""
-        label = preset.label
-        try:
-            started = lighting_state.shared_lighting_state().apply_single(dev, preset)
-        except OSError as exc:  # it runs, but will not come back after a restart
-            self.status.emit(f"Applied {label}, but it could not be remembered: {exc}")
-            return
-        except Exception as exc:  # never let an exception escape a slot
-            logger.exception("Could not start the %s preset", label)
-            self.status.emit(f"Lighting error: {exc}")
-            return
-        self.status.emit(f"Applied {label}" if started else f"The device did not accept {label}")
 
     @worker.ignore_deleted
     def _on_apply_done(self, label: str, ok: Any) -> None:
@@ -356,6 +299,7 @@ class LightingPanel(QWidget):
             self.status.emit(f"Applied {label}")
         else:
             self.status.emit(f"The device did not accept {label}")
+        self.refresh_running()
         self._finish_write()
 
     def _on_brightness_changed(self, _value: int) -> None:

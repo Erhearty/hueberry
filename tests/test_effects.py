@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from hueberry.backend import effects, led_layout, presets
+from hueberry.backend import effects, led_layout
 from hueberry.backend.effects import Preset, PresetError
 from hueberry.backend.led_layout import DeviceShape, group_layout, single_layout
 
@@ -25,6 +25,12 @@ OLD_PALETTE = ((0xC0, 0x76, 0xFF), (0xB8, 0x6C, 0xEA), (0xFF, 0x3A, 0x82),
 OLD_WAVE_WIDTH = 1.0
 OLD_WAVE_SPEED = 0.04
 OLD_BRIGHTNESS = 1.0
+
+#: The former built-in Erheart preset, as data.
+ERHEART = Preset(key="erheart", label="Erheart", effect=effects.EFFECT_WAVE,
+                 palette=OLD_PALETTE, speed=OLD_WAVE_SPEED * FPS,
+                 direction=effects.DIRECTION_FORWARD, brightness=OLD_BRIGHTNESS,
+                 width=OLD_WAVE_WIDTH)
 
 
 def _old_palette_colour_at(pos):
@@ -71,7 +77,7 @@ def _new_phases(count):
     phase, out = 0.0, []
     for _ in range(count):
         out.append(phase)
-        phase = effects.advance_phase(presets.ERHEART, phase, FPS)
+        phase = effects.advance_phase(ERHEART, phase, FPS)
     return out
 
 
@@ -80,23 +86,22 @@ def _new_phases(count):
 @pytest.mark.parametrize("phase", SAMPLE_PHASES)
 def test_erheart_matrix_matches_old_maths(phase):
     layout = single_layout(DeviceShape.of_matrix("KBD", ROWS, COLS))
-    frame = effects.render_run(presets.ERHEART, layout, phase)["KBD"]
+    frame = effects.render_run(ERHEART, layout, phase)["KBD"]
     for row in range(ROWS):
         for col in range(COLS):
             assert frame[row][col] == _old_matrix_colour(row, col, ROWS, COLS, phase)
-            assert frame[row][col] == presets.matrix_colour(row, col, ROWS, COLS, phase)
 
 
 def test_erheart_phase_steps_match_old_offsets():
     assert _new_phases(FRAMES) == _old_offsets(FRAMES)
-    assert effects.phase_step(presets.ERHEART, FPS) == OLD_WAVE_SPEED
+    assert effects.phase_step(ERHEART, FPS) == OLD_WAVE_SPEED
 
 
 def test_erheart_zone_device_is_corner_of_2x2():
     layout = single_layout(DeviceShape.of_zones("MOUSE"))
     for offset in _old_offsets(FRAMES):
-        ((colour,),) = effects.render_run(presets.ERHEART, layout, offset)["MOUSE"]
-        assert colour == _old_zone_colour(offset) == presets.zone_colour(offset)
+        ((colour,),) = effects.render_run(ERHEART, layout, offset)["MOUSE"]
+        assert colour == _old_zone_colour(offset)
 
 
 # -- model ----------------------------------------------------------------------
@@ -267,7 +272,7 @@ def test_group_layout_orders_side_by_side_without_overlap():
 
 def test_group_render_gives_each_device_its_own_frame():
     layout = group_layout([DeviceShape.of_matrix("KBD", ROWS, COLS), DeviceShape.of_zones("M")])
-    frames = effects.render_run(presets.ERHEART, layout, 0.3)
+    frames = effects.render_run(ERHEART, layout, 0.3)
     assert len(frames["KBD"]) == ROWS and len(frames["KBD"][0]) == COLS
     assert len(frames["M"]) == 1 and len(frames["M"][0]) == 1
 

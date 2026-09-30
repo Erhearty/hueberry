@@ -25,7 +25,8 @@ DIR_MODE = 0o700
 TEMP_PREFIX = ".settings-"
 TEMP_SUFFIX = ".tmp"
 CLOSE_TO_TRAY = "close_to_tray"
-DEFAULTS: dict[str, Any] = {CLOSE_TO_TRAY: True}
+LAST_ADVANCED_PRESET = "last_advanced_preset"
+DEFAULTS: dict[str, Any] = {CLOSE_TO_TRAY: True, LAST_ADVANCED_PRESET: ""}
 
 
 def settings_path() -> Path:
@@ -70,6 +71,11 @@ class Settings:
     def close_to_tray(self) -> bool:
         """Keep running in the background when the window is closed."""
         return self.get(CLOSE_TO_TRAY)
+
+    @property
+    def last_advanced_preset(self) -> str:
+        """Key of the advanced (per-key) preset to show at startup; '' for none."""
+        return self.get(LAST_ADVANCED_PRESET)
 
     def save(self) -> None:
         """Atomically write every key, including unknown ones."""

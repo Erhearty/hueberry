@@ -67,6 +67,15 @@ def test_about_to_quit_stops_engine_before_waiting(monkeypatch):
     assert order == ["stop", "wait"]
 
 
+def test_about_to_quit_shuts_advanced_runtime_down(monkeypatch):
+    install(monkeypatch, app)
+    shutdowns = []
+    runtime = type("Runtime", (), {"shutdown": lambda self: shutdowns.append(1)})()
+    monkeypatch.setattr(app.advanced_runtime, "shared_runtime", lambda: runtime)
+    app.main([])
+    assert shutdowns == [1]
+
+
 def test_quit_requests_reach_the_app(monkeypatch):
     install(monkeypatch, app)
     app.main([])

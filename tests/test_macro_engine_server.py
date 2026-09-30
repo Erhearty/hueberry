@@ -422,6 +422,71 @@ def test_record_with_engine_remapped_node_and_other_nodes_busy(sock_dir, naga_no
         server.close()
 
 
+def test_key_watch_opens_matching_nodes_ungrabbed(sock_dir, keyboard, mouse):
+    """Watched nodes open without grabbing, key-downs are polled by cursor, unwatching closes them."""
+    server = _server(sock_dir, MacroConfig())
+    server.setup()
+    try:
+        result = _ask(server, "key_watch", names=["keyb"])["result"]
+        assert result["nodes"] == [keyboard.path] and not keyboard.grabbed and not keyboard.closed
+        assert mouse.path not in server._handles
+        keyboard.queue_events(make_event(EV_KEY, KEY_A, 1, 5.0), make_event(EV_KEY, KEY_A, 0, 5.1),
+                              make_event(EV_KEY, KEY_A, 1, 6.0))
+        server.run_once(0)
+        assert _ask(server, "key_events", since=0)["result"] == {"events": [[KEY_A, 0, 5000], [KEY_A, 1, 6000]],
+                                                                 "next": 2}
+        assert _ask(server, "key_events", since=2)["result"] == {"events": [], "next": 2}
+        assert _ask(server, "key_watch", names=[])["result"]["nodes"] == []
+        assert keyboard.closed and server._handles == {}
+    finally:
+        server.close()
+
+
+def test_key_watch_leaves_remapped_and_recording_nodes(sock_dir, mouse, keyboard):
+    """Unwatching keeps a remapped (grabbed) node and a recording node open."""
+    server = _server(sock_dir, _config(mouse))
+    server.setup()
+    try:
+        assert _ask(server, "key_watch", names=["naga", "keyboard"])["ok"]
+        assert mouse.grabbed
+        assert _ask(server, "record_start", identity=devices.identity(keyboard))["ok"]
+        assert _ask(server, "key_watch", names=[])["ok"]
+        assert mouse.grabbed and not mouse.closed and not keyboard.closed
+        _ask(server, "record_stop")
+        assert keyboard.closed and not keyboard.grabbed
+    finally:
+        server.close()
+
+
+def test_key_watch_keeps_node_open_after_record_stop(sock_dir, keyboard):
+    """A watched node stays open when a recording on it stops."""
+    server = _server(sock_dir, MacroConfig())
+    server.setup()
+    try:
+        assert _ask(server, "key_watch", names=["Keyboard"])["ok"]
+        assert _ask(server, "record_start", identity=devices.identity(keyboard))["ok"]
+        _ask(server, "record_stop")
+        assert not keyboard.closed and keyboard.path in server._handles
+    finally:
+        server.close()
+
+
+@pytest.mark.parametrize("op, args", [
+    ("key_watch", {}), ("key_watch", {"names": "Naga"}), ("key_watch", {"names": [1]}),
+    ("key_events", {}), ("key_events", {"since": -1}), ("key_events", {"since": True}),
+    ("key_events", {"since": "0"}),
+])
+def test_key_watch_rejects_bad_args(sock_dir, op, args):
+    """Malformed key_watch/key_events arguments are command errors, not internal errors."""
+    server = _server(sock_dir, MacroConfig())
+    server.setup()
+    try:
+        reply = _ask(server, op, **args)
+        assert not reply["ok"] and reply["error"] != "internal engine error; see the engine log"
+    finally:
+        server.close()
+
+
 def test_stale_socket_is_replaced(sock_dir):
     """A socket file nobody listens on is unlinked and rebound."""
     path = sock_dir / "engine.sock"

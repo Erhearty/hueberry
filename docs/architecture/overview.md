@@ -21,6 +21,10 @@ External, independently-packaged system daemon (OpenRazer project) that owns dir
 
 <!-- generated:start comp:razerui -->
 ## RazerUI (`razerui`, FRONTEND)
+
+PyQt6 front end (package hueberry) for OpenRazer: device pages, whole-device lighting presets, per-key advanced effects (key groups with static/wave/breathing/spectrum/reactive/ripple/starlight, rendered by a background runtime that keeps running in the tray), named advanced presets with last-used restore, macros and sysmon.
+
+**Tech:** Python, PyQt6
 <!-- generated:end comp:razerui -->
 
 <!-- generated:start comp:macro-engine -->

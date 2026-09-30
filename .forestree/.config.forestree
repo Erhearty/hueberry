@@ -50,7 +50,35 @@
     },
     {
       "canvas": {
-        "widgets": []
+        "widgets": [
+          {
+            "data": {
+              "text": "PyQt6 front end (package hueberry) for OpenRazer: device pages, whole-device lighting presets, per-key advanced effects (key groups with static/wave/breathing/spectrum/reactive/ripple/starlight, rendered by a background runtime that keeps running in the tray), named advanced presets with last-used restore, macros and sysmon."
+            },
+            "h": 200,
+            "id": "widget-text-razerui",
+            "title": "Intent & Scope",
+            "type": "text",
+            "w": 350,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "data": {
+              "techs": [
+                "Python",
+                "PyQt6"
+              ]
+            },
+            "h": 200,
+            "id": "widget-techstack-razerui",
+            "title": "Tech Stack",
+            "type": "techstack",
+            "w": 350,
+            "x": 0,
+            "y": 0
+          }
+        ]
       },
       "id": "razerui",
       "name": "RazerUI",
@@ -58,7 +86,31 @@
     },
     {
       "canvas": {
-        "widgets": []
+        "widgets": [
+          {
+            "data": {
+              "routes": [
+                {
+                  "desc": "Watch (non-grabbing) evdev nodes whose name contains any given device name; [] stops",
+                  "method": "IPC",
+                  "path": "key_watch"
+                },
+                {
+                  "desc": "Key-down events since a sequence cursor from a bounded ring buffer",
+                  "method": "IPC",
+                  "path": "key_events"
+                }
+              ]
+            },
+            "h": 200,
+            "id": "widget-endpoints-macro-engine",
+            "title": "API Endpoints",
+            "type": "endpoints",
+            "w": 350,
+            "x": 0,
+            "y": 0
+          }
+        ]
       },
       "id": "macro-engine",
       "name": "Macro Engine",

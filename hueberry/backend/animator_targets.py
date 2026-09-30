@@ -13,7 +13,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from hueberry.backend import presets
 from hueberry.backend.devices import MATRIX_CAPABILITY, list_zones
 from hueberry.backend.effects import Frame, Preset
 from hueberry.backend.led_layout import DeviceShape, Layout
@@ -26,6 +25,26 @@ KIND_MATRIX = "matrix"  # per-key frame through fx.advanced
 KIND_ZONES = "zones"  # one colour through zone.static
 FIRST = 0  # a zone device's frame is 1x1: its only LED is frame[0][0]
 MIN_MATRIX_SIZE = 1  # a matrix needs at least one row and one column
+FPS = 60  # animation frames per second
+
+#: D-Bus error names meaning the device object is gone (unplugged / daemon restarted).
+STALE_ERROR_MARKERS = ("UnknownMethod", "UnknownObject", "ServiceUnknown", "NoReply")
+#: Error texts meaning the device node is not ready yet (permissions / missing file).
+NOT_READY_ERROR_MARKERS = ("Errno 13", "Errno 2")
+
+
+def is_stale_error(exc: BaseException) -> bool:
+    """True when ``exc`` says the device's D-Bus object no longer exists."""
+    text = str(exc)
+    return any(marker in text for marker in STALE_ERROR_MARKERS)
+
+
+def is_not_ready_error(exc: BaseException) -> bool:
+    """True when ``exc`` says the device is not ready yet (retry next frame)."""
+    if isinstance(exc, (PermissionError, FileNotFoundError)):
+        return True
+    text = str(exc)
+    return any(marker in text for marker in NOT_READY_ERROR_MARKERS)
 
 
 @dataclass
@@ -96,11 +115,6 @@ def build_target(dev: Any) -> Target | None:
     return Target(serial, KIND_ZONES, zones=zones) if zones else None
 
 
-def supports(dev: Any) -> bool:
-    """True when lighting presets can be shown on ``dev``."""
-    return dev is not None and build_target(dev) is not None
-
-
 def _paint(target: Target, frame: Frame) -> None:
     if target.kind == KIND_MATRIX:
         matrix = target.advanced.matrix
@@ -123,9 +137,9 @@ def render_safely(target: Target, frame: Frame, preset: Preset, layout: Layout) 
         _paint(target, frame)
         target.painted = (preset, layout)
     except Exception as exc:  # D-Bus / sysfs errors from the device
-        if presets.is_not_ready_error(exc):
+        if is_not_ready_error(exc):
             logger.debug("Device %s not ready, retrying: %s", target.serial, exc)
-        elif presets.is_stale_error(exc):
+        elif is_stale_error(exc):
             logger.info("Device %s is stale, pausing until reload", target.serial)
             target.paused = True
         elif not target.warned:

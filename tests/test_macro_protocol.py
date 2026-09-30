@@ -41,6 +41,12 @@ def test_request_round_trip():
     }
 
 
+def test_key_watch_ops_are_known():
+    """key_watch and key_events decode as known ops."""
+    assert protocol.decode(b'{"op":"key_watch","args":{"names":["Naga"]}}')["op"] == protocol.OP_KEY_WATCH
+    assert protocol.decode(b'{"op":"key_events","args":{"since":0}}')["op"] == protocol.OP_KEY_EVENTS
+
+
 def test_decode_defaults_args():
     """A request without args decodes with empty args."""
     assert protocol.decode(b'{"op":"ping"}') == {"op": "ping", "args": {}}

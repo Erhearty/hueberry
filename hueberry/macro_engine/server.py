@@ -18,7 +18,10 @@ from typing import Any, Callable
 
 from hueberry.macro_engine import devices
 from hueberry.macro_engine.handles import DeviceHandle
-from hueberry.macro_engine.listener import AlreadyRunning, prepare_socket, probe_engine  # noqa: F401 - re-export
+from hueberry.macro_engine.key_watch import CommandError, KeyWatch, apply_watch, key_events_reply
+from hueberry.macro_engine.listener import (  # noqa: F401 - AlreadyRunning is a re-export
+    AlreadyRunning, accept_client, prepare_socket, probe_engine, send_reply,
+)
 from hueberry.macro_engine.nodes import (
     STATE_DISCONNECTED,
     aggregate_states,
@@ -51,10 +54,6 @@ KIND_WAKEUP = "wakeup"
 MSG_INTERNAL_ERROR = "internal engine error; see the engine log"
 MSG_GRABBED_EXCLUSIVELY = ("device is grabbed exclusively by another program (e.g. keyd or OpenRazer macro mode); "
                            "exclude it there (keyd: add -<vendor>:<product> under [ids]) and retry")
-
-
-class CommandError(ValueError):
-    """A well-formed request that cannot be carried out (sent back as an error)."""
 
 
 class EngineServer:
@@ -96,6 +95,7 @@ class EngineServer:
         self._handles: dict[str, DeviceHandle] = {}  # keyed by node path
         self._node_states: dict[str, dict] = {}  # keyed by node path, see nodes.node_state
         self._recorder: Any = None
+        self._key_watch = KeyWatch()
         self._stopping = False
         self._closed = False
         self.stop_reason: str | None = None
@@ -204,15 +204,9 @@ class EngineServer:
         self._request("parent process exited")
 
     def _accept(self, listener: Any, _ref: Any) -> None:
-        try:
-            conn, _addr = listener.accept()
-        except BlockingIOError:
-            return
-        except OSError as exc:
-            logger.warning("accept failed: %s", exc)
-            return
-        conn.settimeout(CLIENT_IO_TIMEOUT_S)
-        self._selector.register(conn, selectors.EVENT_READ, (KIND_CLIENT, protocol.LineBuffer()))
+        conn = accept_client(listener, CLIENT_IO_TIMEOUT_S)
+        if conn is not None:
+            self._selector.register(conn, selectors.EVENT_READ, (KIND_CLIENT, protocol.LineBuffer()))
 
     def _drop_client(self, conn: Any) -> None:
         try:
@@ -222,17 +216,10 @@ class EngineServer:
         conn.close()
 
     def _reply(self, conn: Any, response: dict) -> bool:
-        try:
-            payload = protocol.encode(response)
-        except protocol.ProtocolError as exc:
-            payload = protocol.encode(protocol.error_response(str(exc)))
-        try:
-            conn.sendall(payload)
-        except OSError as exc:
-            logger.info("Client went away: %s", exc)
-            self._drop_client(conn)
-            return False
-        return True
+        if send_reply(conn, response):
+            return True
+        self._drop_client(conn)
+        return False
 
     def _serve_client(self, conn: Any, buffer: protocol.LineBuffer) -> None:
         try:
@@ -266,7 +253,10 @@ class EngineServer:
             self._node_states[path] = node_state(handle.identity, handle.name, STATE_DISCONNECTED, str(exc))
             self._detach(path)
             return
+        watched = self._key_watch.matches(handle.name)
         for event in events:
+            if watched:
+                self._key_watch.handle(event)
             if self._recorder is not None and self._recorder.identity == handle.identity:
                 self._recorder.handle(event)
             if handle.remapper is not None:
@@ -347,6 +337,14 @@ class EngineServer:
             self._release_if_unused(path)
         return {"identity": recorder.identity, "events": recorder.stop(), "truncated": recorder.truncated}
 
+    def _op_key_watch(self, args: dict) -> dict:
+        """Watch key-downs on nodes whose name matches ``names`` (opened without grabbing)."""
+        return apply_watch(self._key_watch, args, self._discover, self._handles, self._attach, self._release_if_unused)
+
+    def _op_key_events(self, args: dict) -> dict:
+        """Key-downs with ``seq >= since`` as ``[[code, seq, t_ms], ...]`` plus the ``next`` cursor."""
+        return key_events_reply(self._key_watch, args)
+
     # -- devices ---------------------------------------------------------------
 
     def reload(self) -> None:
@@ -377,7 +375,7 @@ class EngineServer:
             return
         remapping = handle.remapping
         recording = self._recorder is not None and self._recorder.identity == handle.identity
-        if not remapping and not recording:
+        if not remapping and not recording and not self._key_watch.matches(handle.name):
             self._detach(path)
 
     def _settle(self, handle: DeviceHandle) -> None:

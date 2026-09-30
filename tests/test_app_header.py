@@ -57,5 +57,5 @@ def test_add_trailing_goes_after_stretch(qtbot):
 def test_main_window_uses_header(window):  # noqa: F811
     win, _service = window
     assert win.menuWidget() is win.header
-    for widget in (win.macros_button, win.presets_button, win.daemon_bar):
+    for widget in (win.macros_button, win.daemon_bar):
         assert win.header.isAncestorOf(widget)

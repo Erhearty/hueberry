@@ -5,7 +5,6 @@
 The preview is an approximation of the hardware effect: openrazer effects
 (breath, starlight, wave, ...) run in the device firmware, so they are drawn
 with the closest animator effect and palette rather than reproduced exactly.
-A selected preset is shown as-is.
 """
 
 from typing import TYPE_CHECKING, Callable
@@ -90,9 +89,6 @@ def _brightness(panel: "LightingPanel") -> float:
 
 def preview_preset(panel: "LightingPanel") -> Preset | None:
     """The preset approximating ``panel``'s selection, or None when nothing is lit."""
-    selected = panel.selected_preset()
-    if selected is not None:
-        return selected
     effect = panel.current_effect()
     if effect is None or effect.key == EFFECT_OFF:
         return None

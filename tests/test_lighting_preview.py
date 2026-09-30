@@ -10,7 +10,7 @@ from hueberry.backend.effects import (
 )
 from hueberry.backend.lighting import WAVE_LEFT, WAVE_RIGHT
 from hueberry.ui import worker
-from hueberry.ui.lighting_panel import PRESET_ERHEART, LightingPanel
+from hueberry.ui.lighting_panel import LightingPanel
 from hueberry.ui.lighting_preview import HUE_PALETTE, preview_preset
 
 MATRIX_CAPS = ("lighting", "lighting_static", "lighting_breath_dual", "lighting_led_matrix",
@@ -94,14 +94,6 @@ def test_no_device_has_no_preview(qtbot):
     panel = LightingPanel()
     qtbot.addWidget(panel)
     assert preview_preset(panel) is None
-
-
-def test_selected_preset_returned_unchanged(qtbot, make_device):
-    panel = _make_panel(qtbot, make_device)
-    _select(panel, PRESET_ERHEART)
-    selected = panel.selected_preset()
-    assert selected is not None
-    assert preview_preset(panel) is selected
 
 
 def test_brightness_follows_slider(qtbot, make_device):

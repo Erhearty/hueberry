@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Tests for the PyQt6 panels (run offscreen with pytest-qt)."""
 
+import threading
 from pathlib import Path
 
 import pytest
@@ -9,14 +10,16 @@ from PyQt6 import sip
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QAbstractSlider, QWidget
 
-from hueberry.backend import animator, lighting_state
+from hueberry.backend import advanced_preset_store, advanced_runtime, device_effects_store
+from hueberry.backend.advanced_presets import AdvancedPreset, DeviceProgram, KeyGroup
+from hueberry.backend.advanced_runtime import AdvancedRuntime
 from hueberry.backend.daemon import DaemonService
-from hueberry.backend.devices import describe_device
-from hueberry.ui import lighting_panel as lighting_module
-from hueberry.ui import worker
+from hueberry.backend.devices import MAIN_ZONE_KEY, describe_device
+from hueberry.backend.key_effects import KeyEffect
+from hueberry.ui import lighting_restore, worker
 from hueberry.ui.daemon_panel import DaemonPanel
 from hueberry.ui.device_info_panel import DeviceInfoPanel
-from hueberry.ui.lighting_panel import PRESET_ERHEART, LightingPanel
+from hueberry.ui.lighting_panel import DEFAULT_COLOUR1, DEFAULT_COLOUR2, LightingPanel
 from hueberry.ui.mouse_panel import MousePanel
 
 UI_DIR = Path(__file__).resolve().parent.parent / "hueberry" / "ui"
@@ -192,68 +195,72 @@ def test_lighting_callbacks_survive_deleted_panel(qtbot, make_device, capture_wo
     on_error("late")
 
 
-MATRIX_CAPS = LIGHTING_CAPS + ("lighting_led_matrix",)
+RECORD_SERIAL = "KBD0001"
+PER_KEY_CAPS = LIGHTING_CAPS + ("lighting_led_matrix",)
+SECOND_COLOUR = (40, 50, 60)
+
+
+def test_recorded_effect_is_preselected(lighting_panel, make_device):
+    device_effects_store.save_record(RECORD_SERIAL, MAIN_ZONE_KEY, "breath_dual",
+                                     {"colour1": CHOSEN_COLOUR, "colour2": SECOND_COLOUR})
+    lighting_panel.set_device(make_device(serial=RECORD_SERIAL, capabilities=LIGHTING_CAPS))
+    assert lighting_panel.effect_combo.currentData() == "breath_dual"
+    assert lighting_panel.colour1_button.colour() == CHOSEN_COLOUR
+    assert lighting_panel.colour2_button.colour() == SECOND_COLOUR
+    assert lighting_panel.colour2_button.isVisibleTo(lighting_panel)
+    assert lighting_panel.running_label.text() == "Running: Breath (dual)"
+    assert lighting_panel.running_label.isVisibleTo(lighting_panel)
+
+
+def test_no_record_shows_defaults(lighting_panel, make_device):
+    device_effects_store.save_record(RECORD_SERIAL, MAIN_ZONE_KEY, "breath_dual",
+                                     {"colour1": CHOSEN_COLOUR, "colour2": SECOND_COLOUR})
+    lighting_panel.set_device(make_device(serial=RECORD_SERIAL, capabilities=LIGHTING_CAPS))
+    lighting_panel.set_device(make_device(serial="OTHER", capabilities=LIGHTING_CAPS))
+    assert lighting_panel.effect_combo.currentIndex() == 0
+    assert lighting_panel.colour1_button.colour() == DEFAULT_COLOUR1
+    assert lighting_panel.colour2_button.colour() == DEFAULT_COLOUR2
+    assert not lighting_panel.running_label.isVisibleTo(lighting_panel)
+
+
+def test_apply_updates_running_label(lighting_panel, make_device, sync_worker):
+    lighting_panel.set_device(make_device(serial=RECORD_SERIAL, capabilities=LIGHTING_CAPS))
+    _select_effect(lighting_panel, "static")
+    lighting_panel.apply_button.click()
+    assert lighting_panel.running_label.text() == "Running: Static"
 
 
 @pytest.fixture
-def passive_animator(monkeypatch):
-    """Replace the shared animator with a thread-less one."""
-    anim = animator.Animator(start_thread=False)
-    monkeypatch.setattr(animator, "shared_animator", lambda: anim)
-    state = lighting_state.LightingState(anim)
-    monkeypatch.setattr(lighting_state, "shared_lighting_state", lambda: state)
-    return anim
+def per_key_runtime(monkeypatch):
+    rt = AdvancedRuntime(start_thread=False)
+    monkeypatch.setattr(advanced_runtime, "shared_runtime", lambda: rt)
+    return rt
 
 
-def test_erheart_offered_when_supported(lighting_panel, make_device, passive_animator):
-    lighting_panel.set_device(make_device(capabilities=LIGHTING_CAPS))
-    index = lighting_panel.effect_combo.findData(PRESET_ERHEART)
-    assert index >= 0
-    assert lighting_panel.effect_combo.itemText(index) == "Erheart"
-    lighting_panel.set_device(make_device(capabilities=("lighting", "lighting_spectrum")))
-    assert lighting_panel.effect_combo.findData(PRESET_ERHEART) < 0
+def _per_key_preset():
+    group = KeyGroup("Esc", ((0, 1),), KeyEffect(palette=(CHOSEN_COLOUR,)))
+    return AdvancedPreset("glow", "Glow", (DeviceProgram(RECORD_SERIAL, (group,)),))
 
 
-def test_apply_erheart_starts_animation(lighting_panel, make_device, passive_animator,
-                                        capture_worker):
-    dev = make_device(serial="KBD1", capabilities=MATRIX_CAPS)
+def test_per_key_effect_shows_its_label(lighting_panel, make_device, per_key_runtime):
+    dev = make_device(serial=RECORD_SERIAL, capabilities=PER_KEY_CAPS)
+    advanced_preset_store.save([_per_key_preset()])
+    per_key_runtime.activate(_per_key_preset(), [dev])
     lighting_panel.set_device(dev)
-    _select_effect(lighting_panel, PRESET_ERHEART)
-    assert lighting_panel.apply_button.isEnabled()
-    messages = []
-    lighting_panel.status.connect(messages.append)
-    lighting_panel.apply_button.click()
-    assert messages == ["Applied Erheart"]
-    assert capture_worker.calls == []  # frames are drawn by the animator, not the worker
-    assert passive_animator.is_running("KBD1")
-    passive_animator.step()
-    assert len(dev.fx.advanced.draws) == 1
+    assert lighting_panel.running_label.text() == "Running: Glow (Create effect)"
 
 
-def test_other_effect_stops_erheart(lighting_panel, make_device, passive_animator,
-                                    capture_worker, monkeypatch):
-    dev = make_device(serial="KBD1", capabilities=MATRIX_CAPS)
+def test_running_label_follows_worker_thread_change(qtbot, lighting_panel, make_device,
+                                                    per_key_runtime):
+    dev = make_device(serial=RECORD_SERIAL, capabilities=PER_KEY_CAPS)
+    lighting_restore.connect_panel(lighting_panel)
     lighting_panel.set_device(dev)
-    _select_effect(lighting_panel, PRESET_ERHEART)
-    lighting_panel.apply_button.click()
-    lighting_panel.set_device(dev)  # re-showing the device must not stop it
-    assert passive_animator.is_running("KBD1")
-    seen = []
-    real_apply = lighting_module.apply_effect
-
-    def apply_after_stop(*args):
-        seen.append((passive_animator.is_running("KBD1"), dev.fx.advanced.restore_calls))
-        return real_apply(*args)
-
-    monkeypatch.setattr(lighting_module, "apply_effect", apply_after_stop)
-    _select_effect(lighting_panel, "static")
-    lighting_panel.apply_button.click()
-    assert passive_animator.is_running("KBD1")  # nothing is stopped on the UI thread
-    ((fn, on_done, _on_error),) = capture_worker.calls
-    on_done(fn())
-    assert seen == [(False, 1)]  # stopped and restored inside the job, before apply_effect
-    assert not passive_animator.is_running("KBD1")
-    assert dev.fx.calls[-1][0] == "static"
+    assert not lighting_panel.running_label.isVisibleTo(lighting_panel)
+    thread = threading.Thread(target=per_key_runtime.activate, args=(_per_key_preset(), [dev]))
+    thread.start()
+    thread.join()
+    qtbot.waitUntil(lambda: lighting_panel.running_label.text() == "Running: glow (Create effect)")
+    assert lighting_panel.running_label.isVisibleTo(lighting_panel)
 
 
 @pytest.fixture

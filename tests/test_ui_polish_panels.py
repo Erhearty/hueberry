@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # SPDX-FileCopyrightText: 2025 Hueberry contributors
-"""Visual-polish form alignment and primary roles on the device/daemon/preset panels."""
+"""Visual-polish form alignment and primary roles on the device/daemon panels."""
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QFormLayout
@@ -11,7 +11,6 @@ from hueberry.ui.daemon_panel import DaemonPanel
 from hueberry.ui.device_info_panel import DeviceInfoPanel
 from hueberry.ui.lighting_panel import LightingPanel
 from hueberry.ui.mouse_panel import MousePanel
-from hueberry.ui.preset_editor import PresetEditor
 
 LABEL_ALIGNMENT = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
 
@@ -33,7 +32,7 @@ def _assert_configured(widget):
 
 
 def test_panel_forms_are_configured(qtbot):
-    for widget in (LightingPanel(), MousePanel(), DeviceInfoPanel(), PresetEditor()):
+    for widget in (LightingPanel(), MousePanel(), DeviceInfoPanel()):
         qtbot.addWidget(widget)
         _assert_configured(widget)
 
