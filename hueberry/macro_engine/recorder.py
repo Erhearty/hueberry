@@ -2,8 +2,9 @@
 # SPDX-FileCopyrightText: 2025 Hueberry contributors
 """Records key/button events of one device for turning into a macro.
 
-Only EV_KEY presses and releases are kept (auto-repeat is noise for a
-macro); the event count is capped so a forgotten recording cannot grow
+Only EV_KEY presses and releases and mouse-wheel notches (REL_WHEEL, one
+unit up or down) are kept; auto-repeat and other relative axes (pointer
+motion) are noise for a macro. The event count is capped so a forgotten recording cannot grow
 without bound, and the cap keeps the converted macro within MAX_STEPS.
 """
 
@@ -20,13 +21,19 @@ TIMESTAMP_DIGITS = 6
 
 
 class Recorder:
-    """Collects ``(code name, value, seconds since first event)`` for ``identity``."""
+    """Collects ``(code name, value, seconds since first event)`` for ``identity``.
+
+    Events of other identities join the recording via ``also_record``.
+    """
 
     def __init__(self, identity: str, max_events: int = MAX_RECORDED_EVENTS) -> None:
         from evdev import ecodes  # lazy: optional dependency
 
         self.identity = identity
+        self._accepted = {identity}
         self._ev_key = ecodes.EV_KEY
+        self._ev_rel = ecodes.EV_REL
+        self._rel_wheel = ecodes.REL_WHEEL
         self._max_events = max_events
         self._events: list[tuple[str, int, float]] = []
         self._origin: float | None = None
@@ -37,11 +44,27 @@ class Recorder:
         """Events recorded so far."""
         return len(self._events)
 
+    def accepts(self, identity: str) -> bool:
+        """True for the recording's own identity and any identity added by ``also_record``."""
+        return identity in self._accepted
+
+    def also_record(self, identity: str) -> None:
+        """Also keep events of ``identity`` (e.g. a mouse recorded beside the keyboard)."""
+        self._accepted.add(identity)
+
+    def _name_of(self, event: Any) -> str | None:
+        """Recorded name for a key/button press or release or a wheel notch, else None."""
+        if event.type == self._ev_key:
+            if event.value == keycodes.VALUE_REPEAT:
+                return None
+            return keycodes.name_for(event.code)
+        if event.type == self._ev_rel and event.code == self._rel_wheel and event.value in keycodes.WHEEL_VALUES:
+            return keycodes.WHEEL_NAME
+        return None
+
     def handle(self, event: Any) -> None:
-        """Keep EV_KEY press/release events with a known name, up to the cap."""
-        if event.type != self._ev_key or event.value == keycodes.VALUE_REPEAT:
-            return
-        name = keycodes.name_for(event.code)
+        """Keep key/button presses and releases and wheel notches with a known name, up to the cap."""
+        name = self._name_of(event)
         if name is None:
             return
         if len(self._events) >= self._max_events:

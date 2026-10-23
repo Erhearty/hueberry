@@ -10,18 +10,24 @@ from hueberry.macro_engine.recorder import MAX_RECORDED_EVENTS, Recorder
 from hueberry.macros import keycodes
 
 EV_SYN, EV_KEY, EV_REL = 0, 1, 2
+REL_WHEEL = 8
 
 
 def test_records_key_presses_and_releases(fake_evdev):
     """EV_KEY press/release are kept with names and relative times."""
     recorder = Recorder("id")
+    assert recorder.accepts("id") and not recorder.accepts("mouse")
+    recorder.also_record("mouse")
+    assert recorder.accepts("mouse")
     recorder.handle(make_event(EV_KEY, 30, 1, 100.5))
     recorder.handle(make_event(EV_SYN, 0, 0, 100.5))
     recorder.handle(make_event(EV_REL, 0, 5, 100.6))
     recorder.handle(make_event(EV_KEY, 30, 0, 100.75))
     recorder.handle(make_event(EV_KEY, 0x110, 1, 101.0))
+    recorder.handle(make_event(EV_REL, REL_WHEEL, -1, 101.25))
+    recorder.handle(make_event(EV_REL, REL_WHEEL, 0, 101.3))
     events = recorder.stop()
-    assert events == [["KEY_A", 1, 0.0], ["KEY_A", 0, 0.25], ["BTN_LEFT", 1, 0.5]]
+    assert events == [["KEY_A", 1, 0.0], ["KEY_A", 0, 0.25], ["BTN_LEFT", 1, 0.5], ["REL_WHEEL", -1, 0.75]]
     assert json.loads(json.dumps(events)) == events
     assert keycodes.events_to_steps(events)
 

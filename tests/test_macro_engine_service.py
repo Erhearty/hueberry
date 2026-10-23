@@ -226,10 +226,23 @@ def test_client_calls():
                                ("record_start", {"identity": "dev-1"}), ("record_stop", {})]
 
 
+def test_record_start_sends_at_most_the_engine_limit_of_extras():
+    client = FakeClient([{}, {}])
+    service, _sleeps = _service(client=client)
+    service.record_start("dev-1", [f"dev-{n}" for n in range(10)])
+    service.record_start("dev-1", [])
+    assert client.requests == [
+        ("record_start", {"identity": "dev-1", "also_identities": [f"dev-{n}" for n in range(8)]}),
+        ("record_start", {"identity": "dev-1"}),
+    ]
+
+
 def test_key_watch_calls():
     """key_watch and key_events forward their op and args."""
-    client = FakeClient([{"names": ["Naga"], "nodes": []}, {"events": [], "next": 0}])
+    client = FakeClient([{"names": ["Naga"], "nodes": []}, {"names": ["Naga"]}, {"events": [], "next": 0}])
     service, _sleeps = _service(client=client)
     assert service.key_watch(["Naga"])["names"] == ["Naga"]
+    assert service.key_watch_names() == ["Naga"]
     assert service.key_events(0) == {"events": [], "next": 0}
-    assert client.requests == [("key_watch", {"names": ["Naga"]}), ("key_events", {"since": 0})]
+    assert client.requests == [("key_watch", {"names": ["Naga"]}), ("key_watch_names", {}),
+                               ("key_events", {"since": 0})]

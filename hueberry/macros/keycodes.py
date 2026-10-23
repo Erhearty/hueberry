@@ -27,6 +27,9 @@ VALUE_RELEASE = 0
 VALUE_PRESS = 1
 VALUE_REPEAT = 2
 MS_PER_S = 1000
+WHEEL_NAME = "REL_WHEEL"
+WHEEL_VALUES = (1, -1)  # REL_WHEEL value per notch: up, down
+MOUSE_BUTTON_NAMES = ("BTN_LEFT", "BTN_RIGHT", "BTN_MIDDLE", "BTN_SIDE", "BTN_EXTRA", "BTN_FORWARD", "BTN_BACK")
 DEFAULT_MIN_GAP_MS = 5
 
 
@@ -115,12 +118,18 @@ def events_to_steps(recorded: Iterable, min_gap_ms: int = DEFAULT_MIN_GAP_MS) ->
     steps: list = []
     previous_t = None
     for code, value, t in recorded:
-        if value not in (VALUE_PRESS, VALUE_RELEASE) or not is_valid_code(code):
+        if code == WHEEL_NAME:
+            if value not in WHEEL_VALUES:
+                continue
+            step = model.WheelStep(model.WHEEL_UP if value == 1 else model.WHEEL_DOWN)
+        elif value in (VALUE_PRESS, VALUE_RELEASE) and is_valid_code(code):
+            action = model.ACTION_PRESS if value == VALUE_PRESS else model.ACTION_RELEASE
+            step = model.KeyStep(code, action)
+        else:
             continue
         delay = _gap_step(previous_t, t, min_gap_ms)
         if delay is not None:
             steps.append(delay)
-        action = model.ACTION_PRESS if value == VALUE_PRESS else model.ACTION_RELEASE
-        steps.append(model.KeyStep(code, action))
+        steps.append(step)
         previous_t = t
     return steps[:model.MAX_STEPS]

@@ -362,8 +362,12 @@ class MacrosPage(QWidget):
         others = [m.trigger for i, m in enumerate(device.macros if device else []) if i != row]
         present = self._devices.get(identity, {}).get("present", False)
         running = self._engine is not None and self._engine.state == engine_states.STATE_RUNNING
+        name = self._devices.get(identity, {}).get("name") or None
+        also = [other for other, info in self._devices.items()
+                if other != identity and info.get("present") and info.get("kind") in SUPPORTED_KINDS]
         self.editor = MacroEditorDialog(macro, engine=self._engine if running and present else None,
-                                        identity=identity, taken_triggers=others, parent=self)
+                                        identity=identity, taken_triggers=others, parent=self,
+                                        device_name=name, also_identities=also)
         self.editor.accepted.connect(lambda dialog=self.editor: self._editor_done(dialog, row))
         self.editor.open()
 

@@ -378,6 +378,62 @@ def test_record_reports_partly_blocked_nodes(sock_dir, naga_nodes):
         server.close()
 
 
+def test_also_identities_join_and_release_with_the_recording(sock_dir, mouse, keyboard):
+    """also_identities opens and records the extra devices too; record_stop releases all of them."""
+    server = _server(sock_dir, MacroConfig())
+    server.setup()
+    try:
+        assert not _ask(server, "record_start", identity=devices.identity(keyboard),
+                        also_identities="mouse")["ok"]
+        result = _ask(server, "record_start", identity=devices.identity(keyboard),
+                      also_identities=[devices.identity(mouse)])["result"]
+        assert result == {"identity": devices.identity(keyboard), "skipped_also": []}
+        assert not mouse.closed
+        mouse.queue_events(make_event(EV_KEY, BTN_LEFT, 1, 1.0))
+        server.run_once(0)
+        assert _ask(server, "record_stop")["result"]["events"] == [["BTN_LEFT", 1, 0.0]]
+        assert mouse.closed and keyboard.closed and server._handles == {}
+    finally:
+        server.close()
+
+
+def test_also_identities_dedupe_before_the_limit(sock_dir, mouse, keyboard):
+    """Nine entries that are one distinct identity are accepted: the limit counts distinct names."""
+    server = _server(sock_dir, MacroConfig())
+    server.setup()
+    try:
+        result = _ask(server, "record_start", identity=devices.identity(keyboard),
+                      also_identities=[devices.identity(mouse)] * 9)["result"]
+        assert result == {"identity": devices.identity(keyboard), "skipped_also": []}
+        assert not mouse.closed
+        _ask(server, "record_stop")
+        assert mouse.closed and keyboard.closed and server._handles == {}
+    finally:
+        server.close()
+
+
+def test_extra_that_fails_to_open_is_skipped(sock_dir, fake_evdev, mouse, keyboard, naga_nodes):
+    """An extra that cannot be opened is skipped and reported; the primary and the other extras still record."""
+    failing = {mouse.path}
+
+    def _open(path):
+        if path in failing:
+            raise OSError(13, "Permission denied")
+        return fake_evdev.InputDevice(path)
+
+    server = _server(sock_dir, MacroConfig(), open_device=_open)
+    server.setup()
+    try:
+        extras = [devices.identity(mouse), devices.identity(naga_nodes[0])]
+        result = _ask(server, "record_start", identity=devices.identity(keyboard), also_identities=extras)["result"]
+        assert result == {"identity": devices.identity(keyboard), "skipped_also": [devices.identity(mouse)]}
+        assert sorted(server._handles) == sorted([keyboard.path, *(node.path for node in naga_nodes)])
+        _ask(server, "record_stop")
+        assert server._handles == {} and keyboard.closed and all(node.closed for node in naga_nodes)
+    finally:
+        server.close()
+
+
 def test_held_keys_skip_the_grab_probe(sock_dir, fake_evdev, naga_nodes):
     """With keys held the probe never grabs (it would hide the release), so nothing counts as blocked."""
     for node in naga_nodes:
@@ -467,6 +523,20 @@ def test_key_watch_keeps_node_open_after_record_stop(sock_dir, keyboard):
         assert _ask(server, "record_start", identity=devices.identity(keyboard))["ok"]
         _ask(server, "record_stop")
         assert not keyboard.closed and keyboard.path in server._handles
+    finally:
+        server.close()
+
+
+def test_key_watch_names_reports_names_unchanged(sock_dir, keyboard):
+    """key_watch_names answers the names last set and leaves the watch as it is."""
+    server = _server(sock_dir, MacroConfig())
+    server.setup()
+    try:
+        assert _ask(server, "key_watch_names")["result"] == {"names": []}
+        assert _ask(server, "key_watch", names=["Keyboard", ""])["ok"]
+        assert _ask(server, "key_watch_names")["result"] == {"names": ["Keyboard"]}
+        assert _ask(server, "key_watch_names")["result"] == {"names": ["Keyboard"]}
+        assert keyboard.path in server._handles and not keyboard.closed
     finally:
         server.close()
 

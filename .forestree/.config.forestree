@@ -267,6 +267,10 @@
         "checked": false,
         "value": ""
       },
+      "fast_tests": {
+        "checked": true,
+        "value": ""
+      },
       "focused_prs": {
         "checked": true,
         "value": ""
