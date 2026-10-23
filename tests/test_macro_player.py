@@ -5,11 +5,13 @@
 import pytest
 
 from hueberry.macro_engine.player import MIN_ITERATION_MS, Player
-from hueberry.macros.model import AppActionStep, DelayStep, KeyStep
+from hueberry.macros.model import AppActionStep, DelayStep, KeyStep, WheelStep
 
-EV_SYN, EV_KEY = 0, 1
+EV_SYN, EV_KEY, EV_REL = 0, 1, 2
+REL_WHEEL = 8
 SYN = (EV_SYN, 0, 0)
 KEY_A, KEY_B, KEY_LEFTCTRL = 30, 48, 29
+BTN_LEFT = 0x110
 TAP_A = [(EV_KEY, KEY_A, 1), SYN, (EV_KEY, KEY_A, 0), SYN]
 GAP_S = MIN_ITERATION_MS / 1000
 
@@ -201,3 +203,14 @@ def test_default_sleep_is_cancellable(fake_evdev):
     assert player._sleep(10_000) is True  # Event.wait returns at once once cancelled
     player.run([KeyStep("KEY_A")])
     assert uinput.writes == []
+
+
+def test_wheel_and_mouse_button_steps_write_their_events(rig):
+    """A mouse button is a key event; a wheel notch is REL_WHEEL +1 (up) or -1 (down), each followed by SYN."""
+    player, uinput, _sleeps, threads = rig
+    player.play([KeyStep("BTN_LEFT"), WheelStep("up"), WheelStep("down")])
+    threads.run_next()
+    assert uinput.writes == [
+        (EV_KEY, BTN_LEFT, 1), SYN, (EV_KEY, BTN_LEFT, 0), SYN,
+        (EV_REL, REL_WHEEL, 1), SYN, (EV_REL, REL_WHEEL, -1), SYN,
+    ]

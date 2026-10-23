@@ -21,7 +21,9 @@ from typing import Any, Callable, Iterable
 
 from hueberry import gui_link
 from hueberry.macros import keycodes
-from hueberry.macros.model import ACTION_PRESS, ACTION_RELEASE, ACTION_TAP, AppActionStep, DelayStep
+from hueberry.macros.model import (
+    ACTION_PRESS, ACTION_RELEASE, ACTION_TAP, WHEEL_DOWN, WHEEL_UP, AppActionStep, DelayStep, WheelStep,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,7 @@ MIN_ITERATION_MS = 10  # minimum time per repeat iteration (throttles delay-less
 THREAD_NAME = "macro-player"
 PRESS_ACTIONS = (ACTION_PRESS, ACTION_TAP)
 RELEASE_ACTIONS = (ACTION_RELEASE, ACTION_TAP)
+WHEEL_DELTAS = {WHEEL_UP: 1, WHEEL_DOWN: -1}  # REL_WHEEL value per notch
 
 
 def start_daemon_thread(target: Callable[[], None]) -> threading.Thread:
@@ -62,6 +65,8 @@ class Player:
 
         self._uinput = uinput
         self._ev_key = ecodes.EV_KEY
+        self._ev_rel = ecodes.EV_REL
+        self._rel_wheel = ecodes.REL_WHEEL
         self._cancel = threading.Event()
         self._sleep = sleep if sleep is not None else self._cancel.wait  # cancellable delays
         self._start_thread = start_thread
@@ -143,6 +148,9 @@ class Player:
         if isinstance(step, AppActionStep):
             self._notify_app(step.action)
             return
+        if isinstance(step, WheelStep):
+            self._emit_event(self._ev_rel, self._rel_wheel, WHEEL_DELTAS[step.direction])
+            return
         code = keycodes.code_for(step.code)
         if code is None:
             logger.warning("Skipping unknown key %s", step.code)
@@ -165,8 +173,11 @@ class Player:
             logger.warning("App action %s was not delivered", action)
 
     def _emit(self, code: int, value: int) -> None:
+        self._emit_event(self._ev_key, code, value)
+
+    def _emit_event(self, etype: int, code: int, value: int) -> None:
         with self.lock:
-            self._uinput.write(self._ev_key, code, value)
+            self._uinput.write(etype, code, value)
             self._uinput.syn()
 
     def _release(self, pressed: set[int]) -> None:

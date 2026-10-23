@@ -18,7 +18,9 @@ from typing import Any, Callable
 
 from hueberry.macro_engine import devices
 from hueberry.macro_engine.handles import DeviceHandle
-from hueberry.macro_engine.key_watch import CommandError, KeyWatch, apply_watch, key_events_reply
+from hueberry.macro_engine.key_watch import (
+    CommandError, KeyWatch, apply_watch, key_events_reply, watch_names_reply,
+)
 from hueberry.macro_engine.listener import (  # noqa: F401 - AlreadyRunning is a re-export
     AlreadyRunning, accept_client, prepare_socket, probe_engine, send_reply,
 )
@@ -51,9 +53,21 @@ KIND_CLIENT = "client"
 KIND_DEVICE = "device"
 KIND_PARENT = "parent"
 KIND_WAKEUP = "wakeup"
+MAX_ALSO_IDENTITIES = 8
 MSG_INTERNAL_ERROR = "internal engine error; see the engine log"
 MSG_GRABBED_EXCLUSIVELY = ("device is grabbed exclusively by another program (e.g. keyd or OpenRazer macro mode); "
                            "exclude it there (keyd: add -<vendor>:<product> under [ids]) and retry")
+
+
+def _also_identities(args: dict) -> list[str]:
+    """The optional ``also_identities`` of record_start: a list of strings, de-duplicated."""
+    extras = args.get("also_identities", [])
+    if not isinstance(extras, list) or not all(isinstance(name, str) for name in extras):
+        raise CommandError("record_start 'also_identities' must be a list of strings")
+    distinct = list(dict.fromkeys(extras))
+    if len(distinct) > MAX_ALSO_IDENTITIES:
+        raise CommandError(f"record_start takes at most {MAX_ALSO_IDENTITIES} also_identities")
+    return distinct
 
 
 class EngineServer:
@@ -257,7 +271,7 @@ class EngineServer:
         for event in events:
             if watched:
                 self._key_watch.handle(event)
-            if self._recorder is not None and self._recorder.identity == handle.identity:
+            if self._recorder is not None and self._recorder.accepts(handle.identity):
                 self._recorder.handle(event)
             if handle.remapper is not None:
                 handle.remapper.handle(event)
@@ -302,12 +316,33 @@ class EngineServer:
         identity = args.get("identity")
         if not isinstance(identity, str):
             raise CommandError("record_start needs a string 'identity'")
+        extras = [name for name in _also_identities(args) if name != identity]
         if self._recorder is not None:
             raise CommandError(f"already recording {self._recorder.identity}")
-        self._open_for_recording(identity)
-        blocked = self._refuse_foreign_grab(identity)
+        names = {identity, *extras}
+        blocked = 0
+        accepted: list[str] = []
+        skipped: list[str] = []
+        try:
+            self._open_for_recording(identity)  # the primary identity: any failure fails the request
+            blocked += self._refuse_foreign_grab(identity)
+            for name in extras:  # best-effort: an extra that cannot be recorded is skipped, not fatal
+                try:
+                    self._open_for_recording(name)
+                    blocked += self._refuse_foreign_grab(name)
+                except (CommandError, OSError, ValueError) as exc:
+                    logger.warning("Recording %s: skipping also_identities %s: %s", identity, name, exc)
+                    self._release_recorded({name}.__contains__)
+                    skipped.append(name)
+                else:
+                    accepted.append(name)
+        except Exception:  # CommandError or a bug alike: never leave the identities open
+            self._release_recorded(lambda name: name in names)
+            raise
         self._recorder = self._recorder_factory(identity)
-        return {"identity": identity, **({"blocked_nodes": blocked} if blocked else {})}
+        for name in accepted:
+            self._recorder.also_record(name)
+        return {"identity": identity, **({"blocked_nodes": blocked} if blocked else {}), "skipped_also": skipped}
 
     def _open_for_recording(self, identity: str) -> None:
         """Attach every node of ``identity`` not open yet; fail only when none is usable."""
@@ -333,13 +368,16 @@ class EngineServer:
         recorder, self._recorder = self._recorder, None
         if recorder is None:
             raise CommandError("not recording")
-        for path in paths_of(self._handles, recorder.identity):
-            self._release_if_unused(path)
+        self._release_recorded(recorder.accepts)
         return {"identity": recorder.identity, "events": recorder.stop(), "truncated": recorder.truncated}
 
     def _op_key_watch(self, args: dict) -> dict:
         """Watch key-downs on nodes whose name matches ``names`` (opened without grabbing)."""
         return apply_watch(self._key_watch, args, self._discover, self._handles, self._attach, self._release_if_unused)
+
+    def _op_key_watch_names(self, _args: dict) -> dict:
+        """Names currently watched, as the last key_watch set them (nothing changes)."""
+        return watch_names_reply(self._key_watch)
 
     def _op_key_events(self, args: dict) -> dict:
         """Key-downs with ``seq >= since`` as ``[[code, seq, t_ms], ...]`` plus the ``next`` cursor."""
@@ -369,12 +407,18 @@ class EngineServer:
         if handle is not None:
             close_handle(handle, self._selector)
 
+    def _release_recorded(self, accepts: Callable[[str], bool]) -> None:
+        """Release every open node whose identity the recording accepts and nothing else still needs."""
+        for path, handle in list(self._handles.items()):
+            if accepts(handle.identity):
+                self._release_if_unused(path)
+
     def _release_if_unused(self, path: str) -> None:
         handle = self._handles.get(path)
         if handle is None:
             return
         remapping = handle.remapping
-        recording = self._recorder is not None and self._recorder.identity == handle.identity
+        recording = self._recorder is not None and self._recorder.accepts(handle.identity)
         if not remapping and not recording and not self._key_watch.matches(handle.name):
             self._detach(path)
 

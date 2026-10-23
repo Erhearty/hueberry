@@ -28,6 +28,7 @@ PARENT_PID_FLAG = "--parent-pid"
 EXIT_OK = 0
 EXIT_ERROR = 1
 EXIT_ALREADY_RUNNING = 3
+MAX_ALSO_IDENTITIES = 8  # the engine's limit on record_start's also_identities
 EXIT_NO_EVDEV = 4
 READY_POLL_S = 0.1
 READY_ATTEMPTS = 50  # READY_POLL_S * READY_ATTEMPTS = 5 s to come up
@@ -200,9 +201,12 @@ class MacroEngineService:
         """Ask the engine to re-read macros.json; returns the new status."""
         return self.request(protocol.OP_RELOAD)
 
-    def record_start(self, identity: str) -> dict:
-        """Start recording key events of ``identity``."""
-        return self.request(protocol.OP_RECORD_START, identity=identity)
+    def record_start(self, identity: str, also_identities: list | tuple = ()) -> dict:
+        """Start recording key events of ``identity`` and of ``also_identities`` beside it."""
+        extras = list(also_identities)[:MAX_ALSO_IDENTITIES]  # the engine refuses more; extras are best-effort
+        if not extras:
+            return self.request(protocol.OP_RECORD_START, identity=identity)
+        return self.request(protocol.OP_RECORD_START, identity=identity, also_identities=extras)
 
     def record_stop(self) -> dict:
         """Stop recording; the result holds ``events`` as ``[[code, value, t], ...]``."""
@@ -211,6 +215,10 @@ class MacroEngineService:
     def key_watch(self, names: list[str]) -> dict:
         """Watch key-downs on devices whose name contains any of ``names`` (empty stops watching)."""
         return self.request(protocol.OP_KEY_WATCH, names=names)
+
+    def key_watch_names(self) -> list[str]:
+        """Names the engine watches now (what the last key_watch set); changes nothing."""
+        return list(self.request(protocol.OP_KEY_WATCH_NAMES)["names"])
 
     def key_events(self, since: int) -> dict:
         """Key-downs from cursor ``since``: ``events`` as ``[[code, seq, t_ms], ...]`` and ``next``."""

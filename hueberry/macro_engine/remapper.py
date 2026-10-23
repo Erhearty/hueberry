@@ -21,7 +21,7 @@ from typing import Any, Callable, Iterable
 from hueberry.macro_engine.devices import VIRTUAL_PREFIX
 from hueberry.macro_engine.player import Player
 from hueberry.macros import keycodes
-from hueberry.macros.model import REPEAT_TIMES, REPEAT_TOGGLE
+from hueberry.macros.model import REPEAT_TIMES, REPEAT_TOGGLE, KeyStep, WheelStep
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,32 @@ def clone_uinput(dev: Any, name: str) -> Any:
     import evdev  # lazy: optional dependency
 
     return evdev.UInput.from_device(dev, name=name)
+
+
+def combined_uinput(dev: Any, name: str) -> Any:
+    """Create a uinput with ``dev``'s capabilities plus the mouse buttons and wheel.
+
+    Macros with mouse steps play through this: a keyboard-derived clone lacks
+    BTN_* and REL_WHEEL, so the kernel would drop those events.
+    """
+    import evdev  # lazy: optional dependency
+    from evdev import ecodes  # lazy: optional dependency
+
+    events = {etype: list(codes) for etype, codes in dev.capabilities().items()
+              if etype not in (ecodes.EV_SYN, ecodes.EV_FF)}
+    buttons = {keycodes.code_for(button) for button in keycodes.MOUSE_BUTTON_NAMES} - {None}
+    events[ecodes.EV_KEY] = sorted(set(events.get(ecodes.EV_KEY, [])) | buttons)
+    events[ecodes.EV_REL] = sorted(set(events.get(ecodes.EV_REL, [])) | {ecodes.REL_WHEEL})
+    return evdev.UInput(events=events, name=name)
+
+
+def _close_uinput(device: Any) -> None:
+    if device is None:
+        return
+    try:
+        device.close()
+    except OSError as exc:
+        logger.warning("Closing uinput device failed: %s", exc)
 
 
 def _uinput_errors() -> tuple[type[BaseException], ...]:
@@ -78,6 +104,7 @@ class DeviceRemapper:
         dev: Any,
         macros: Iterable,
         uinput_factory: Callable[[Any, str], Any] = clone_uinput,
+        output_factory: Callable[[Any, str], Any] = combined_uinput,
         player_factory: Callable[[Any], Any] = Player,
     ) -> None:
         from evdev import ecodes  # lazy: optional dependency
@@ -85,7 +112,9 @@ class DeviceRemapper:
         self.dev = dev
         self._macros = list(macros)
         self._uinput_factory = uinput_factory
+        self._output_factory = output_factory
         self._player_factory = player_factory
+        self._output: Any = None  # combined mouse+keyboard output, only for macros with mouse steps
         self._ev_key = ecodes.EV_KEY
         self._triggers: dict[int, Any] = {}
         self._clone: Any = None
@@ -133,9 +162,12 @@ class DeviceRemapper:
         name = (VIRTUAL_PREFIX + self.dev.name)[:UINPUT_MAX_NAME_LENGTH]
         try:
             self._clone = self._uinput_factory(self.dev, name)
+            if self._needs_mouse_output():
+                self._output = self._output_factory(self.dev, name)
         except _uinput_errors() as exc:
+            self._close_clone()
             return self._set_failure(state_for_error(exc), f"cannot create uinput clone: {exc}")
-        self._player = self._player_factory(self._clone)
+        self._player = self._player_factory(self._output if self._output is not None else self._clone)
         self.state = STATE_WAITING
         if not self.try_grab() and self.pending_grab:
             logger.info("Deferring grab of %r until held keys are released", self.dev.name)
@@ -194,14 +226,20 @@ class DeviceRemapper:
             return
         player.play(list(macro.steps), macro.iterations(), code)
 
+    def _needs_mouse_output(self) -> bool:
+        """True when an enabled macro plays a mouse button or wheel step."""
+        return any(
+            isinstance(step, WheelStep)
+            or (isinstance(step, KeyStep) and step.code.startswith(keycodes.BTN_PREFIX))
+            for macro in self._macros if macro.enabled for step in macro.steps
+        )
+
     def _close_clone(self) -> None:
+        """Close the passthrough clone and the combined output, whichever exist."""
+        output, self._output = self._output, None
         clone, self._clone = self._clone, None
-        if clone is None:
-            return
-        try:
-            clone.close()
-        except OSError as exc:
-            logger.warning("Closing uinput clone failed: %s", exc)
+        _close_uinput(output)
+        _close_uinput(clone)
 
     def _release(self) -> None:
         """Ungrab first (give the real device back), then drop the clone."""

@@ -18,13 +18,36 @@ class FakeEngine:
         self.calls = []
         self.events = events or []
 
-    def record_start(self, identity):
+    def record_start(self, identity, also_identities=()):
         self.calls.append(("record_start", identity))
+        self.also_identities = list(also_identities)
         return {}
 
     def record_stop(self):
         self.calls.append(("record_stop",))
         return {"events": list(self.events)}
+
+
+class WatchEngine(FakeEngine):
+    """FakeEngine that also keeps watched names; ``presses`` are returned by key_events."""
+
+    def __init__(self, names=()):
+        super().__init__()
+        self.presses = []
+        self.names = list(names)
+
+    def key_watch(self, names):
+        self.calls.append(("key_watch", list(names)))
+        self.names = list(names)
+        return {}
+
+    def key_watch_names(self):
+        self.calls.append(("key_watch_names",))
+        return list(self.names)
+
+    def key_events(self, since):
+        self.calls.append(("key_events", since))
+        return {"events": list(self.presses), "next": since + len(self.presses)}
 
 
 @pytest.fixture
@@ -68,6 +91,17 @@ def test_start_then_record_normally(qtbot, pending):
     assert pending == []
 
 
+def test_start_sends_also_identities(qtbot, pending):
+    engine = FakeEngine()
+    keyboard = "1532:0226:Test Keyboard:usb-0"
+    dialog = RecorderDialog(engine, IDENTITY, also_identities=[keyboard])
+    qtbot.addWidget(dialog)
+    dialog.start()
+    _finish(pending)
+    assert engine.also_identities == [keyboard]
+    assert dialog._recording
+
+
 KEY_A_EVENTS = [["KEY_A", 1, 0.0], ["KEY_A", 0, 0.1]]
 PAUSE_EVENTS = [["KEY_PAUSE", 1, 0.2], ["KEY_PAUSE", 2, 0.3], ["KEY_PAUSE", 0, 0.4]]
 
@@ -80,6 +114,45 @@ def _recording(qtbot, pending, engine, capture=False):
     _finish(pending)
     assert dialog._recording
     return dialog
+
+
+def test_capture_watch_finishes_on_button_press(qtbot, pending, fake_evdev):
+    from evdev import ecodes
+
+    engine = WatchEngine(names=["Keyboard"])
+    dialog = RecorderDialog(engine, IDENTITY, capture=True, device_name="Test Mouse")
+    qtbot.addWidget(dialog)
+    dialog.start()
+    _finish(pending)  # record_start: the watch and the cursor are requested next
+    _finish(pending)
+    assert dialog.poll_timer.isActive()
+    engine.presses = [[ecodes.BTN_SIDE, 0, 500]]
+    dialog._poll_capture()
+    _finish(pending)  # key_events reports the press
+    while pending:
+        _finish(pending)  # key_watch([]) and record_stop
+    assert dialog.captured == "BTN_SIDE"
+    assert dialog.result() == QDialog.DialogCode.Accepted
+    assert not dialog.poll_timer.isActive()
+    assert engine.calls == [("record_start", IDENTITY), ("key_watch_names",), ("key_watch", ["Test Mouse"]),
+                            ("key_events", 0), ("key_events", 0), ("key_watch", ["Keyboard"]),
+                            ("record_stop",)]
+    assert engine.names == ["Keyboard"]  # the names watched before the capture are back
+
+
+def test_stop_right_after_start_leaves_previous_names(qtbot, pending):
+    engine = WatchEngine(names=["Keyboard"])
+    dialog = RecorderDialog(engine, IDENTITY, capture=True, device_name="Test Mouse")
+    qtbot.addWidget(dialog)
+    dialog.start()
+    _finish(pending)  # record_start answers; the watch start is queued but has not run
+    dialog.stop()  # stop before the watch start ran: the restore must still come last
+    while pending:
+        _finish(pending)
+    assert engine.names == ["Keyboard"]
+    assert [call for call in engine.calls if call[0] == "key_watch"] == [("key_watch", ["Test Mouse"]),
+                                                                         ("key_watch", ["Keyboard"])]
+    assert engine.calls[-1] == ("key_watch", ["Keyboard"])
 
 
 def test_pause_key_stops_and_accepts(qtbot, pending):

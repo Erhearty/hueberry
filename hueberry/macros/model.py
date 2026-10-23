@@ -25,6 +25,10 @@ MAX_ID_LENGTH = 64
 STEP_KEY = "key"
 STEP_DELAY = "delay"
 STEP_APP = "app"
+STEP_WHEEL = "wheel"
+WHEEL_UP = "up"
+WHEEL_DOWN = "down"
+WHEEL_DIRECTIONS = (WHEEL_UP, WHEEL_DOWN)
 ACTION_PRESS = "press"
 ACTION_RELEASE = "release"
 ACTION_TAP = "tap"
@@ -131,8 +135,25 @@ class AppActionStep:
         return []
 
 
-Step = KeyStep | DelayStep | AppActionStep
-STEP_CLASSES = (KeyStep, DelayStep, AppActionStep)
+@dataclass(frozen=True)
+class WheelStep:
+    """Scroll the mouse wheel one notch up or down."""
+
+    direction: str
+
+    def to_dict(self) -> dict:
+        """JSON-ready form."""
+        return {"type": STEP_WHEEL, "direction": self.direction}
+
+    def problems(self) -> list[str]:
+        """Human-readable reasons this step is invalid ([] when valid)."""
+        if self.direction not in WHEEL_DIRECTIONS:
+            return [f"unknown wheel direction {self.direction!r}"]
+        return []
+
+
+Step = KeyStep | DelayStep | AppActionStep | WheelStep
+STEP_CLASSES = (KeyStep, DelayStep, AppActionStep, WheelStep)
 
 
 def step_from_dict(data: Any) -> Step:
@@ -144,6 +165,8 @@ def step_from_dict(data: Any) -> Step:
         return DelayStep(_field(data, "ms", int))
     if kind == STEP_APP:
         return AppActionStep(_field(data, "action", str))
+    if kind == STEP_WHEEL:
+        return WheelStep(_field(data, "direction", str))
     raise ModelError(f"unsupported step type: {kind!r}")
 
 

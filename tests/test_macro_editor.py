@@ -3,14 +3,17 @@
 """Tests for the macro editor and recorder dialogs (synchronous worker)."""
 
 import pytest
-from PyQt6.QtWidgets import QDialogButtonBox
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QDialogButtonBox, QMessageBox
 
 from hueberry import gui_link
 from hueberry.macros import model
-from hueberry.macros.model import AppActionStep, DelayStep, KeyStep, Macro
+from hueberry.macros.model import AppActionStep, DelayStep, KeyStep, Macro, WheelStep
 from hueberry.macros.protocol import EngineError
 from hueberry.ui import worker
-from hueberry.ui.macro_editor import KIND_APP, MacroEditorDialog, StepDialog, describe_step
+from hueberry.ui.macro_editor import (
+    KIND_APP, KIND_MOUSE, KIND_WHEEL, NO_ENGINE_TIP, MacroEditorDialog, StepDialog, describe_step,
+)
 from hueberry.ui.macro_recorder import RecorderDialog, first_pressed
 
 IDENTITY = "1532:0084:Test Mouse:usb-1"
@@ -35,7 +38,7 @@ class FakeEngine:
         self.start_error = start_error
         self.calls = []
 
-    def record_start(self, identity):
+    def record_start(self, identity, also_identities=()):
         self.calls.append(("record_start", identity))
         if self.start_error is not None:
             raise self.start_error
@@ -44,6 +47,18 @@ class FakeEngine:
     def record_stop(self):
         self.calls.append(("record_stop",))
         return {"identity": IDENTITY, "events": self.events, "truncated": False}
+
+    def key_watch(self, names):
+        self.calls.append(("key_watch", list(names)))
+        return {}
+
+    def key_watch_names(self):
+        self.calls.append(("key_watch_names",))
+        return []
+
+    def key_events(self, since):
+        self.calls.append(("key_events", since))
+        return {"events": [], "next": 0}
 
 
 @pytest.fixture(autouse=True)
@@ -77,6 +92,9 @@ def test_describe_step():
     toggle = AppActionStep(gui_link.APP_ACTION_TOGGLE_SYSMON)
     assert describe_step(toggle) == "App: Toggle system monitor"
     assert describe_step(AppActionStep("mystery")) == "App: mystery"
+    assert describe_step(KeyStep("BTN_LEFT")) == "Tap Button Left"
+    assert describe_step(WheelStep(model.WHEEL_UP)) == "Scroll up"
+    assert describe_step(WheelStep(model.WHEEL_DOWN)) == "Scroll down"
 
 
 def test_add_app_action_step(qtbot):
@@ -92,6 +110,40 @@ def test_add_app_action_step(qtbot):
     dialog.accept()
     assert editor.steps() == [KeyStep("KEY_A"), AppActionStep(gui_link.APP_ACTION_TOGGLE_SYSMON)]
     assert _texts(editor) == ["Tap A", "App: Toggle system monitor"]
+
+
+def test_add_mouse_and_wheel_steps(qtbot):
+    editor = _editor(qtbot)
+    editor.add_key_button.click()
+    dialog = editor.step_dialog
+    dialog.kind_combo.setCurrentIndex(dialog.kind_combo.findData(KIND_MOUSE))
+    assert dialog.mouse_combo.isEnabled()
+    assert not dialog.code_combo.isEnabled() and not dialog.wheel_combo.isEnabled()
+    assert dialog.action_combo.isEnabled()
+    dialog.mouse_combo.setCurrentIndex(dialog.mouse_combo.findData("BTN_RIGHT"))
+    dialog.action_combo.setCurrentIndex(dialog.action_combo.findData(model.ACTION_PRESS))
+    dialog.accept()
+    editor.add_key_button.click()
+    dialog = editor.step_dialog
+    dialog.kind_combo.setCurrentIndex(dialog.kind_combo.findData(KIND_WHEEL))
+    assert dialog.wheel_combo.isEnabled()
+    assert not dialog.action_combo.isEnabled() and not dialog.mouse_combo.isEnabled()
+    dialog.wheel_combo.setCurrentIndex(dialog.wheel_combo.findData(model.WHEEL_DOWN))
+    dialog.accept()
+    assert editor.steps() == [KeyStep("KEY_A"), KeyStep("BTN_RIGHT", model.ACTION_PRESS),
+                              WheelStep(model.WHEEL_DOWN)]
+    assert _texts(editor) == ["Tap A", "Press Button Right", "Scroll down"]
+
+
+def test_edit_wheel_step_stays_wheel(qtbot):
+    editor = _editor(qtbot, _macro([WheelStep(model.WHEEL_UP)]))
+    editor.steps_list.setCurrentRow(0)
+    editor.edit_button.click()
+    dialog = editor.step_dialog
+    assert dialog.kind_combo.currentData() == KIND_WHEEL
+    assert dialog.wheel_combo.currentData() == model.WHEEL_UP
+    dialog.accept()
+    assert editor.steps() == [WheelStep(model.WHEEL_UP)]
 
 
 def test_edit_app_action_step_round_trips(qtbot):
@@ -200,14 +252,15 @@ def test_recording_needs_engine(qtbot):
 
 def test_capture_trigger(qtbot):
     engine = FakeEngine([["BTN_EXTRA", 1, 0.0], ["BTN_EXTRA", 0, 0.1]])
-    editor = _editor(qtbot, engine=engine, identity=IDENTITY)
+    editor = _editor(qtbot, engine=engine, identity=IDENTITY, device_name="Test Mouse")
     editor.capture_button.click()
     recorder = editor.recorder
     recorder.start_button.click()
     assert recorder.stop_button.isEnabled()
     recorder.stop_button.click()
     assert editor.trigger_combo.currentText() == "BTN_EXTRA"
-    assert engine.calls == [("record_start", IDENTITY), ("record_stop",)]
+    assert engine.calls == [("record_start", IDENTITY), ("key_watch_names",), ("key_watch", ["Test Mouse"]),
+                            ("key_events", 0), ("key_watch", []), ("record_stop",)]
 
 
 def test_recorded_steps_inserted_after_selection(qtbot):
@@ -218,10 +271,24 @@ def test_recorded_steps_inserted_after_selection(qtbot):
     editor.record_button.click()
     editor.recorder.start_button.click()
     editor.recorder.stop_button.click()
+    editor.review.accept()
     assert editor.steps() == [
         KeyStep("KEY_A"), KeyStep("KEY_B", model.ACTION_PRESS), DelayStep(50),
         KeyStep("KEY_B", model.ACTION_RELEASE), KeyStep("KEY_C", model.ACTION_PRESS),
         KeyStep("KEY_Z"),
+    ]
+
+
+def test_unchecked_recorded_step_is_not_inserted(qtbot):
+    engine = FakeEngine([["KEY_B", 1, 0.0], ["KEY_B", 0, 0.05], ["KEY_C", 1, 0.051]])
+    editor = _editor(qtbot, _macro([KeyStep("KEY_A")]), engine=engine, identity=IDENTITY)
+    editor.record_button.click()
+    editor.recorder.start_button.click()
+    editor.recorder.stop_button.click()
+    editor.review.list_widget.item(2).setCheckState(Qt.CheckState.Unchecked)  # KEY_B release
+    editor.review.accept()
+    assert editor.steps() == [
+        KeyStep("KEY_A"), KeyStep("KEY_B", model.ACTION_PRESS), DelayStep(50), KeyStep("KEY_C", model.ACTION_PRESS),
     ]
 
 
@@ -325,6 +392,53 @@ def test_repeat_stop_hint_is_muted(qtbot):
     assert "again stops" in hint.text()
     assert hint.property("role") == "muted"
     assert editor.repeat_group.count_label.buddy() is editor.repeat_count_spin
+
+
+def test_capture_needs_device_name(qtbot):
+    editor = _editor(qtbot, engine=FakeEngine(), identity=IDENTITY)
+    assert editor.record_button.isEnabled()
+    assert not editor.capture_button.isEnabled()
+    assert editor.capture_button.toolTip() == NO_ENGINE_TIP
+
+
+def test_step_capture_is_disabled_without_engine(qtbot):
+    dialog = StepDialog()
+    qtbot.addWidget(dialog)
+    assert not dialog.capture_button.isEnabled()
+    assert dialog.capture_button.toolTip() == NO_ENGINE_TIP
+
+
+def test_step_capture_fills_key(qtbot):
+    engine = FakeEngine([["BTN_SIDE", 1, 0.0], ["BTN_SIDE", 0, 0.1]])
+    dialog = StepDialog(engine=engine, identity=IDENTITY, device_name="Test Mouse")
+    qtbot.addWidget(dialog)
+    assert dialog.capture_button.isEnabled()
+    dialog.capture_button.click()
+    dialog.recorder.start_button.click()
+    dialog.recorder.stop_button.click()
+    assert dialog.code_combo.currentText() == "BTN_SIDE"
+
+
+def test_delete_selected_steps_after_confirmation(qtbot, monkeypatch):
+    answers = [QMessageBox.StandardButton.No, QMessageBox.StandardButton.Yes]
+    asked = []
+
+    def question(*args):
+        asked.append(args)
+        return answers.pop(0)
+
+    monkeypatch.setattr(QMessageBox, "question", question)
+    editor = _editor(qtbot, _macro([KeyStep("KEY_A"), KeyStep("KEY_B"), DelayStep(5), KeyStep("KEY_C")]))
+    for row in (0, 1, 2):
+        editor.steps_list.item(row).setSelected(True)
+    assert editor.delete_button.isEnabled()
+    assert not editor.edit_button.isEnabled() and not editor.up_button.isEnabled()
+    editor.delete_button.click()  # answered No: nothing goes
+    assert len(editor.steps()) == 4
+    editor.delete_button.click()  # answered Yes
+    assert len(asked) == 2
+    assert editor.steps() == [KeyStep("KEY_C")]
+    assert _texts(editor) == ["Tap C"]
 
 
 def test_first_pressed_skips_releases_and_invalid():

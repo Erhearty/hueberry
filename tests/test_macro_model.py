@@ -24,6 +24,7 @@ from hueberry.macros.model import (
     Macro,
     MacroConfig,
     ModelError,
+    WheelStep,
     canonical_identity,
     step_from_dict,
 )
@@ -226,6 +227,10 @@ def test_events_to_steps_collapses_small_gaps():
         ("KEY_B", 1, 10.102),
         ("KEY_B", 0, 30.102),
         ("KEY_NOPE", 1, 30.2),
+        ("REL_WHEEL", 1, 30.3),
+        ("REL_WHEEL", 0, 30.4),
+        ("REL_X", 1, 30.41),
+        ("REL_WHEEL", -1, 30.35),
     ]
     assert keycodes.events_to_steps(recorded) == [
         KeyStep("KEY_A", "press"),
@@ -234,7 +239,12 @@ def test_events_to_steps_collapses_small_gaps():
         KeyStep("KEY_B", "press"),
         DelayStep(MAX_DELAY_MS),
         KeyStep("KEY_B", "release"),
+        DelayStep(198),
+        WheelStep("up"),
+        DelayStep(50),
+        WheelStep("down"),
     ]
+    assert step_from_dict(WheelStep("down").to_dict()) == WheelStep("down")
 
 
 def test_repeat_fields_default_when_absent():

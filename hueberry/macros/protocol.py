@@ -34,8 +34,9 @@ OP_RECORD_START = "record_start"
 OP_RECORD_STOP = "record_stop"
 OP_KEY_WATCH = "key_watch"
 OP_KEY_EVENTS = "key_events"
+OP_KEY_WATCH_NAMES = "key_watch_names"
 KNOWN_OPS = frozenset({OP_PING, OP_STATUS, OP_LIST_DEVICES, OP_RELOAD, OP_RECORD_START, OP_RECORD_STOP,
-                       OP_KEY_WATCH, OP_KEY_EVENTS})
+                       OP_KEY_WATCH, OP_KEY_EVENTS, OP_KEY_WATCH_NAMES})
 
 
 class ProtocolError(ValueError):

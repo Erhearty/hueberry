@@ -23,6 +23,7 @@ EV_MSC = 0x04
 EV_FF = 0x15
 SYN_REPORT = 0
 REL_X = 0x00
+REL_WHEEL = 0x08
 MSC_SCAN = 0x04
 DEFAULT_BUSTYPE = 0x03
 DEFAULT_VERSION = 0x0111
@@ -47,7 +48,7 @@ BTN_CODES = {
 }
 OTHER_CODES = {
     "EV_SYN": EV_SYN, "EV_KEY": EV_KEY, "EV_REL": EV_REL, "EV_MSC": EV_MSC, "EV_FF": EV_FF,
-    "SYN_REPORT": SYN_REPORT, "REL_X": REL_X, "MSC_SCAN": MSC_SCAN,
+    "SYN_REPORT": SYN_REPORT, "REL_X": REL_X, "REL_WHEEL": REL_WHEEL, "MSC_SCAN": MSC_SCAN,
 }
 
 DeviceInfo = namedtuple("DeviceInfo", "bustype vendor product version")

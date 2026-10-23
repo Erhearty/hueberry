@@ -9,10 +9,11 @@ from fake_evdev import make_event
 
 from hueberry.macro_engine import remapper as remapper_mod
 from hueberry.macro_engine.remapper import DeviceRemapper
-from hueberry.macros.model import REPEAT_ONCE, REPEAT_TIMES, REPEAT_TOGGLE, KeyStep, Macro
+from hueberry.macros.model import REPEAT_ONCE, REPEAT_TIMES, REPEAT_TOGGLE, KeyStep, Macro, WheelStep
 
 EV_SYN, EV_KEY, EV_REL = 0, 1, 2
 BTN_LEFT, BTN_SIDE, BTN_EXTRA = 0x110, 0x113, 0x114
+REL_WHEEL = 8
 
 
 class _FakePlayer:
@@ -282,3 +283,21 @@ def test_default_player_plays_through_clone(fake_evdev, mouse):
     remapper.handle(make_event(EV_KEY, BTN_SIDE, 1))
     (clone,) = fake_evdev.UInput.instances
     assert clone.writes == [(EV_KEY, 30, 1), (EV_SYN, 0, 0), (EV_KEY, 30, 0), (EV_SYN, 0, 0)]
+
+
+@pytest.mark.parametrize("steps, combined", [
+    ([KeyStep("KEY_H")], False),
+    ([KeyStep("BTN_LEFT")], True),
+    ([WheelStep("up")], True),
+])
+def test_mouse_steps_pick_the_combined_output(fake_evdev, mouse, steps, combined):
+    """Macros with a mouse button or wheel step play through a combined uinput with mouse caps; others use the clone."""
+    remapper = _remapper(mouse, Macro("m1", "Mx", True, "BTN_SIDE", steps))
+    assert remapper.start()
+    (clone, *_rest) = fake_evdev.UInput.instances
+    player_device = remapper._player.uinput
+    assert (player_device is not clone) == combined
+    if combined:
+        assert {BTN_LEFT, 0x111, 0x112} <= set(player_device.events[EV_KEY])
+        assert REL_WHEEL in player_device.events[EV_REL]
+        assert not clone.closed and clone.writes == []

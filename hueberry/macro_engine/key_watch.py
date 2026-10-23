@@ -31,13 +31,19 @@ class KeyWatch:
 
     def __init__(self, max_events: int = MAX_KEY_EVENTS) -> None:
         self._names: tuple[str, ...] = ()
+        self._kept: tuple[str, ...] = ()  # the names as given, empty ones dropped
         self._events: deque[tuple[int, int, int]] = deque(maxlen=max_events)
         self._next_seq = FIRST_SEQ
         self._ev_key: int | None = None
 
     def set_names(self, names: Iterable[str]) -> None:
         """Replace the watched names; empty strings are ignored (they would match everything)."""
-        self._names = tuple(name.casefold() for name in names if name)
+        self._kept = tuple(name for name in names if name)
+        self._names = tuple(name.casefold() for name in self._kept)
+
+    def names(self) -> list[str]:
+        """The names last set, as given (empty ones dropped)."""
+        return list(self._kept)
 
     def matches(self, entry_name: str) -> bool:
         """True when any watched name is a case-insensitive substring of ``entry_name``."""
@@ -105,6 +111,11 @@ def apply_watch(
         release(path)
     watched = sorted(path for path, handle in handles.items() if key_watch.matches(handle.name))
     return {"names": names, "nodes": watched}
+
+
+def watch_names_reply(key_watch: KeyWatch) -> dict:
+    """The ``key_watch_names`` op: the names currently watched, unchanged."""
+    return {"names": key_watch.names()}
 
 
 def key_events_reply(key_watch: KeyWatch, args: dict) -> dict:
