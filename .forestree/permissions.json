@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "run_command"
+      "run_command",
+      "write_source_file",
+      "edit_source_file"
     ],
     "deny": [],
     "ask": []
