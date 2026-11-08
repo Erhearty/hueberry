@@ -5,6 +5,7 @@
 graph TD
     macro-engine["Macro Engine <br/> <small>(BACKEND)</small>"]
     openrazer-daemon["OpenRazer Daemon <br/> <small>(CUSTOM)</small>"]
+    packaging-docs["Packaging & install docs <br/> <small>(CUSTOM)</small>"]
     razerui["RazerUI <br/> <small>(FRONTEND)</small>"]
     sysmon["Sysmon <br/> <small>(CUSTOM)</small>"]
     sysmon-overlay["Sysmon Overlay (Waybar + collector) <br/> <small>(BACKEND)</small>"]
@@ -18,6 +19,7 @@ graph TD
 
 - [Macro Engine](overview.md) (`macro-engine`, backend)
 - [OpenRazer Daemon](overview.md) (`openrazer-daemon`, custom)
+- [Packaging & install docs](overview.md) (`packaging-docs`, custom)
 - [RazerUI](overview.md) (`razerui`, frontend)
 - [Sysmon](overview.md) (`sysmon`, custom)
 - [Sysmon Overlay (Waybar + collector)](overview.md) (`sysmon-overlay`, backend)

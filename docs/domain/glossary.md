@@ -48,3 +48,7 @@ UI for openrazer. Main goals are:
 <!-- generated:start comp:sysmon -->
 - **Sysmon** (`sysmon`) - custom component.
 <!-- generated:end comp:sysmon -->
+
+<!-- generated:start comp:packaging-docs -->
+- **Packaging & install docs** (`packaging-docs`) - custom component.
+<!-- generated:end comp:packaging-docs -->

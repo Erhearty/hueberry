@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Hueberry
+GenericName=Razer device settings
+Comment=Razer device settings and macros (OpenRazer front end)
+Exec=hueberry
+Icon=hueberry
+Terminal=false
+Categories=Settings;HardwareSettings;
+Keywords=Razer;OpenRazer;RGB;LED;DPI;macro;
+StartupNotify=true

@@ -81,6 +81,7 @@ Use these exact names and ids when discussing the architecture.
 |---|---|---|
 | Macro Engine | `macro-engine` | backend |
 | OpenRazer Daemon | `openrazer-daemon` | custom |
+| Packaging & install docs | `packaging-docs` | custom |
 | RazerUI | `razerui` | frontend |
 | Sysmon | `sysmon` | custom |
 | Sysmon Overlay (Waybar + collector) | `sysmon-overlay` | backend |
@@ -89,5 +90,5 @@ Use these exact names and ids when discussing the architecture.
 <!-- generated:start cap:system-boundary -->
 ## System Boundary
 
-The declared system consists of 5 component(s) and 4 connection(s) - see [the system map](../architecture/system-map.md). Anything not declared there is external to this system.
+The declared system consists of 6 component(s) and 4 connection(s) - see [the system map](../architecture/system-map.md). Anything not declared there is external to this system.
 <!-- generated:end cap:system-boundary -->
