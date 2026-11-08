@@ -3,6 +3,8 @@
 """App wiring tests: background start, tray, engine lifecycle, single instance."""
 
 import hueberry.app as app
+from hueberry import shutdown_lighting
+from hueberry.backend import advanced_runtime
 from fake_app import (
     FakeApp,
     FakeEngine,
@@ -67,13 +69,28 @@ def test_about_to_quit_stops_engine_before_waiting(monkeypatch):
     assert order == ["stop", "wait"]
 
 
+class _ConnectedService:
+    """Stands in for DaemonService: connected, with one device."""
+
+    connected = True
+    devices = ["device"]
+
+    def connect(self):
+        return True
+
+
 def test_about_to_quit_shuts_advanced_runtime_down(monkeypatch):
     install(monkeypatch, app)
-    shutdowns = []
-    runtime = type("Runtime", (), {"shutdown": lambda self: shutdowns.append(1)})()
-    monkeypatch.setattr(app.advanced_runtime, "shared_runtime", lambda: runtime)
+    order = []
+    runtime = type("Runtime", (), {
+        "shutdown": lambda self, **kw: order.append(("shutdown", kw))})()
+    monkeypatch.setattr(advanced_runtime, "shared_runtime", lambda: runtime)
+    monkeypatch.setattr(app, "DaemonService", _ConnectedService)
+    monkeypatch.setattr(shutdown_lighting.lights_off, "turn_off",
+                        lambda devices: order.append(("off", list(devices))))
+    monkeypatch.setattr(FakeEngine, "stop", lambda self: order.append(("engine", {})))
     app.main([])
-    assert shutdowns == [1]
+    assert order == [("engine", {}), ("shutdown", {"restore": False}), ("off", ["device"])]
 
 
 def test_quit_requests_reach_the_app(monkeypatch):

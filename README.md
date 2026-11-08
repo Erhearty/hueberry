@@ -104,6 +104,14 @@ hueberry
   uppercase tabs and titles; device icons are
   original, generic glyphs drawn by the app.
 
+### Lighting on quit and start
+
+Quitting Hueberry (tray *Quit*, or closing the window when there is no tray),
+logging out or powering off turns the LEDs of every Razer device off. The next
+time Hueberry starts it reapplies the last whole-device effects and the last
+per-key effect. The LEDs stay dark until Hueberry starts again, so enable
+autostart from the tray menu.
+
 ### Daemon restart
 
 *Restart daemon* uses the systemd user unit when it is active: if

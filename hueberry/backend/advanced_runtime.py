@@ -121,8 +121,13 @@ class AdvancedRuntime:
         self._notify_changed()
         return True
 
-    def stop(self) -> None:
-        """Stop the active preset and restore every device's hardware effect."""
+    def stop(self, *, restore: bool = True) -> None:
+        """Stop the active preset and restore every device's hardware effect.
+
+        ``restore=False`` leaves the devices as they are (e.g. for turning them
+        off on shutdown) but still waits for any in-flight frame, so nothing
+        paints after this returns.
+        """
         with self._lock:
             before = self._state()
             targets = list(self._targets.values())
@@ -130,9 +135,12 @@ class AdvancedRuntime:
             self._preset, self._targets, self._presses = None, {}, {}
             self._claimed_away.clear()
             changed = before != self._state()
-        self._restore(targets)
+        if restore:
+            self._restore(targets)
+        else:
+            self._await_frame()
         if targets:
-            logger.info("Advanced preset stopped")
+            logger.info("Advanced preset stopped (restore=%s)", restore)
         if changed:
             self._notify_changed()
 
@@ -197,14 +205,17 @@ class AdvancedRuntime:
         if changed:
             self._notify_changed()
 
-    def shutdown(self, timeout: float = JOIN_TIMEOUT_S) -> None:
-        """Stop the thread and the active preset (restoring the devices)."""
+    def shutdown(self, timeout: float = JOIN_TIMEOUT_S, *, restore: bool = True) -> None:
+        """Stop the thread and the active preset (restoring the devices unless not ``restore``).
+
+        No frame paints after this returns, even when the join timed out.
+        """
         with self._lock:
             self._stop_event.set()
             thread, self._thread = self._thread, None
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout)
-        self.stop()
+        self.stop(restore=restore)
 
     # -- queries -----------------------------------------------------------------
 
@@ -326,6 +337,11 @@ class AdvancedRuntime:
         with self._render_lock:
             for target in targets:
                 restore_target(target)
+
+    def _await_frame(self) -> None:
+        """Wait for any in-flight frame; later frames see the cleared state."""
+        with self._render_lock:
+            pass
 
     def _rebind(self, serial: str, target: Target | None) -> None:
         """Swap in a rebuilt target, or drop a gone device (caller holds the lock)."""

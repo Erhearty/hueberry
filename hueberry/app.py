@@ -19,10 +19,10 @@ from PyQt6.QtCore import QThreadPool
 from PyQt6.QtWidgets import QApplication
 
 from hueberry import autostart
-from hueberry.backend import advanced_runtime
 from hueberry.backend.daemon import DaemonService
 from hueberry.backend.macro_engine import MacroEngineService
 from hueberry.settings import Settings
+from hueberry.shutdown_lighting import ShutdownLighting
 from hueberry.single_instance import TOGGLE_SYSMON_MESSAGE, SingleInstance
 from hueberry.sysmon.controller import SysmonController
 from hueberry.ui.main_window import MainWindow
@@ -105,15 +105,6 @@ def _show_window(window: MainWindow, tray: TrayController, background: bool) -> 
         window.show()
 
 
-def _stop_animations_on_quit(app: QApplication) -> None:
-    """Stop the per-key effect runtime when Qt is about to quit."""
-    about_to_quit = getattr(app, "aboutToQuit", None)
-    if about_to_quit is None:  # not a real QApplication
-        logger.warning("Application has no aboutToQuit signal; animations not bound")
-        return
-    about_to_quit.connect(advanced_runtime.shared_runtime().shutdown)
-
-
 def _refresh_autostart() -> None:
     """Rewrite a stale Hueberry autostart entry (e.g. wrong interpreter); never fatal."""
     try:
@@ -145,6 +136,9 @@ def main(argv: list[str] | None = None) -> int:
     if tray.available:
         app.setQuitOnLastWindowClosed(False)
     window, service, sysmon = _build_window(app, tray)
+    # After _build_window: its aboutToQuit slot runs after engine/sysmon/tray teardown.
+    shutdown_lighting = ShutdownLighting(service)
+    shutdown_lighting.install(app)
     instance.show_requested.connect(window.show_and_raise)
     _show_window(window, tray, background)
     window.start_engine()
@@ -152,9 +146,9 @@ def main(argv: list[str] | None = None) -> int:
     # Connecting may block on D-Bus, so it runs through worker.run_async and
     # the window reloads its device list when it completes.
     window.run_service_action(CONNECT_LABEL, service.connect)
-    _stop_animations_on_quit(app)
     exit_code = app.exec()
     # Let in-flight D-Bus/daemon tasks finish before interpreter teardown.
     QThreadPool.globalInstance().waitForDone(SHUTDOWN_WAIT_MS)
+    shutdown_lighting.uninstall()
     instance.close()
     return exit_code
