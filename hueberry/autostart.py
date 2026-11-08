@@ -62,9 +62,15 @@ def quote_arg(arg: str) -> str:
     return f'"{arg}"'
 
 
+def _venv_script(python: str) -> str | None:
+    """The ``hueberry`` script beside the interpreter (venv ``bin/``), if it exists."""
+    sibling = Path(python).with_name(SCRIPT_NAME)
+    return str(sibling) if sibling.is_file() else None
+
+
 def exec_line(which: Callable[[str], str | None] = shutil.which, python: str = sys.executable) -> str:
-    """The installed ``hueberry`` script if found, else ``python -m hueberry``."""
-    script = which(SCRIPT_NAME)
+    """The ``hueberry`` script (PATH, else beside ``python``), else ``python -m hueberry``."""
+    script = which(SCRIPT_NAME) or _venv_script(python)
     argv = [script] if script else [python, "-m", SCRIPT_NAME]
     return " ".join(quote_arg(arg) for arg in [*argv, BACKGROUND_FLAG])
 
@@ -129,3 +135,26 @@ def set_autostart(enabled: bool) -> None:
         enable()
     else:
         disable()
+
+
+def _exec_value(path: Path) -> str | None:
+    for line in path.read_text(encoding=ENCODING).splitlines():
+        key, _, value = line.partition("=")
+        if key.strip() == "Exec":
+            return value.strip()
+    return None
+
+
+def refresh_stale_entry(path: Path | None = None, which: Callable[[str], str | None] = shutil.which,
+                        python: str = sys.executable) -> bool:
+    """Rewrite our entry if its Exec differs from ``exec_line()``; True if rewritten.
+
+    A foreign (unmarked) file and an entry that is already current are left alone.
+    """
+    path = path if path is not None else autostart_path()
+    if not path.is_file() or not _is_ours(path):
+        return False
+    if _exec_value(path) == exec_line(which, python):
+        return False
+    enable(path, which, python)
+    return True

@@ -18,6 +18,7 @@ import sys
 from PyQt6.QtCore import QThreadPool
 from PyQt6.QtWidgets import QApplication
 
+from hueberry import autostart
 from hueberry.backend import advanced_runtime
 from hueberry.backend.daemon import DaemonService
 from hueberry.backend.macro_engine import MacroEngineService
@@ -113,6 +114,14 @@ def _stop_animations_on_quit(app: QApplication) -> None:
     about_to_quit.connect(advanced_runtime.shared_runtime().shutdown)
 
 
+def _refresh_autostart() -> None:
+    """Rewrite a stale Hueberry autostart entry (e.g. wrong interpreter); never fatal."""
+    try:
+        autostart.refresh_stale_entry()
+    except OSError as exc:
+        logger.warning("Could not refresh autostart entry: %s", exc)
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run Hueberry and return a process exit code.
 
@@ -131,6 +140,7 @@ def main(argv: list[str] | None = None) -> int:
     logger.info("Hueberry starting (background=%s)", background)
     apply_theme(app)
     install_wheel_guard(app)
+    _refresh_autostart()
     tray = TrayController(Settings())
     if tray.available:
         app.setQuitOnLastWindowClosed(False)
