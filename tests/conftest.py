@@ -261,6 +261,13 @@ def _isolated_lighting_state(monkeypatch, tmp_path, _fake_openrazer):
     monkeypatch.setattr(lighting_state, "_shared", None)
 
 
+@pytest.fixture(autouse=True)
+def _reset_startup_lighting():
+    """Forget which devices startup lighting already reapplied, before every test."""
+    from hueberry.ui import startup_lighting
+    startup_lighting.reset()
+
+
 @pytest.fixture
 def fake_evdev(_fake_evdev):
     """The fake ``evdev`` module (register devices with ``InputDevice(path, name=...)``)."""

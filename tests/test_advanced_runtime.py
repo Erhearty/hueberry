@@ -242,6 +242,52 @@ def test_shutdown_with_thread(devices):
     assert devices[0].fx.advanced.restore_calls == 1
 
 
+class _RecordingLock:
+    """Wraps a lock; records the runtime's active preset key on every acquire."""
+
+    def __init__(self, runtime: AdvancedRuntime) -> None:
+        self._inner = runtime._render_lock
+        self._runtime = runtime
+        self.seen: list = []
+
+    def __enter__(self):
+        self._inner.acquire()
+        self.seen.append(self._runtime._preset)
+        return self
+
+    def __exit__(self, *exc):
+        self._inner.release()
+        return False
+
+
+def test_shutdown_without_restore_leaves_devices(runtime, devices):
+    kbd, pad, _ = devices
+    changes = []
+    runtime.add_change_listener(lambda: changes.append(runtime.active_key()))
+    runtime.activate(STATIC, devices)
+    runtime.shutdown(restore=False)
+    assert kbd.fx.advanced.restore_calls == 0 and pad.fx.advanced.restore_calls == 0
+    assert kbd.fx.calls == [] and pad.fx.calls == []
+    assert runtime.active_key() is None and runtime.active_serials() == []
+    assert changes == ["static", None]
+
+
+def test_shutdown_restores_by_default(runtime, devices):
+    runtime.activate(STATIC, devices)
+    runtime.shutdown()
+    assert devices[0].fx.advanced.restore_calls == 1
+
+
+def test_no_frame_paints_after_shutdown_returns(runtime, devices):
+    kbd = devices[0]
+    runtime.activate(STATIC, devices)
+    lock = runtime._render_lock = _RecordingLock(runtime)
+    runtime.shutdown(restore=False)
+    assert lock.seen == [None]  # waited for any in-flight frame after clearing
+    runtime.step()
+    assert kbd.fx.advanced.draws == []
+
+
 def test_shared_runtime_listens_to_claims(monkeypatch, state, devices):
     monkeypatch.setattr(advanced_runtime, "_shared", None)
     monkeypatch.setattr(lighting_state, "shared_lighting_state", lambda: state)

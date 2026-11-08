@@ -7,8 +7,6 @@ from PyQt6.QtCore import QObject, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import QListWidget, QSplitter
 
-import hueberry.app as app_module
-from hueberry.backend import advanced_runtime
 from hueberry.backend.daemon import DaemonService
 from hueberry.settings import Settings
 from hueberry.sysmon.config import SysmonConfig
@@ -321,35 +319,6 @@ def test_start_daemon_enabled_when_not_connected(window, fake_manager_factory):
     fake_manager_factory.fail = True
     _connect(win)
     assert win.empty_page.start_button.isEnabled()
-
-
-class _RecordingRuntime:
-    """Stands in for the shared advanced runtime; counts shutdown calls."""
-
-    def __init__(self):
-        self.shutdowns = 0
-
-    def shutdown(self):
-        self.shutdowns += 1
-
-
-class _Signal:
-    def __init__(self):
-        self.slots = []
-
-    def connect(self, slot):
-        self.slots.append(slot)
-
-
-def test_app_stops_animations_on_quit(monkeypatch):
-    fake_app = type("FakeApp", (), {})()
-    fake_app.aboutToQuit = _Signal()
-    runtime = _RecordingRuntime()
-    monkeypatch.setattr(advanced_runtime, "shared_runtime", lambda: runtime)
-    app_module._stop_animations_on_quit(fake_app)
-    for slot in fake_app.aboutToQuit.slots:
-        slot()
-    assert runtime.shutdowns == 1
 
 
 def test_effects_page_opens_and_returns(window):

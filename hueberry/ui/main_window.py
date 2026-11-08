@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 
 from hueberry.backend.daemon import DaemonService
 from hueberry.backend.devices import DeviceInfo, describe_device
-from hueberry.ui import effects_wiring, sysmon_wiring, worker
+from hueberry.ui import effects_wiring, startup_lighting, sysmon_wiring, worker
 from hueberry.ui.app_header import AppHeader
 from hueberry.ui.daemon_panel import DaemonPanel
 from hueberry.ui.daemon_status_bar import DaemonStatusBar
@@ -268,7 +268,12 @@ class MainWindow(QMainWindow):
             self._show_home()
 
     def _refresh_animations(self, devices: list[Any]) -> None:
-        """Restore the last per-key effect on the new device objects."""
+        """Reapply recorded device effects (first sight), then the last per-key effect."""
+        try:
+            startup_lighting.reapply_recorded(devices)
+        except Exception as exc:  # a failing reapply must not break the reload
+            logger.exception("Reapplying recorded lighting failed")
+            self.show_status(f"Animation error: {exc}")
         try:
             effects_wiring.restore_last(devices)
         except Exception as exc:  # a failing restore must not break the reload
