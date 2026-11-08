@@ -160,6 +160,14 @@
       "id": "sysmon",
       "name": "Sysmon",
       "type": "custom"
+    },
+    {
+      "canvas": {
+        "widgets": []
+      },
+      "id": "packaging-docs",
+      "name": "Packaging & install docs",
+      "type": "custom"
     }
   ],
   "connections": [
@@ -433,6 +441,10 @@
     "openrazer-daemon": {
       "x": 217,
       "y": 75
+    },
+    "packaging-docs": {
+      "x": 720,
+      "y": 200
     },
     "razerui": {
       "x": 112,

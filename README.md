@@ -23,6 +23,19 @@ Rendering needs Qt's SVG module; some distros ship it separately
 Licensed under the GNU General Public License v3.0 or later (`GPL-3.0-or-later`),
 see [LICENSE](LICENSE).
 
+## Install
+
+Quick start, with the OpenRazer daemon already installed from your distro:
+
+```sh
+pipx install --system-site-packages hueberry
+hueberry
+```
+
+The full guide, covering distro packages, the OpenRazer daemon, udev/uinput
+rules for macros, the launcher entry and autostart, is in
+[docs/INSTALL.md](docs/INSTALL.md).
+
 ## Requirements
 
 - Python 3.10+

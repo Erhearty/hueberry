@@ -1,7 +1,7 @@
 <!-- generated:start cap:overview-intro -->
 # Architecture Overview
 
-5 component(s) declared on the architecture canvas. Topology: [system-map.md](system-map.md).
+6 component(s) declared on the architecture canvas. Topology: [system-map.md](system-map.md).
 <!-- generated:end cap:overview-intro -->
 
 
@@ -42,3 +42,7 @@ System monitor overlay: an external `waybar` child process (own session/process 
 <!-- generated:start comp:sysmon -->
 ## Sysmon (`sysmon`, CUSTOM)
 <!-- generated:end comp:sysmon -->
+
+<!-- generated:start comp:packaging-docs -->
+## Packaging & install docs (`packaging-docs`, CUSTOM)
+<!-- generated:end comp:packaging-docs -->
