@@ -68,44 +68,39 @@ sudo pacman -S waybar       # Arch
 
 ## 2. Install Hueberry with pipx
 
+Hueberry is not published on PyPI, so pipx installs it straight from the
+GitHub repository:
+
 ```sh
 sudo apt install pipx       # Debian / Ubuntu; use dnf / pacman on other distros
 pipx ensurepath
-pipx install hueberry
+pipx install --system-site-packages \
+    "hueberry[macros] @ git+https://github.com/Erhearty/hueberry.git"
 ```
 
-To include the macro engine's evdev dependency from PyPI:
-
-```sh
-pipx install "hueberry[macros]"
-```
+Leave out `[macros]` if you do not use macros; when the distro's
+python3-evdev is installed (step 1), it is used and nothing is fetched from
+PyPI. From a source checkout, `pipx install --system-site-packages ".[macros]"`
+does the same.
 
 The `hueberry` command is placed in `~/.local/bin`. Open a new shell if it is
 not found.
 
-### Seeing the distro `openrazer` module
-
-pipx creates an isolated virtual environment, which does not see the
-system-wide `openrazer` module installed by your distro. Either reinstall with
-access to the system site-packages:
-
-```sh
-pipx install --system-site-packages hueberry
-```
-
-or check that the distro module is importable by the system Python:
+`--system-site-packages` is required: pipx otherwise creates an isolated
+environment that cannot see the distro's `openrazer` module. To check the
+distro module itself works:
 
 ```sh
 python3 -c "import openrazer.client; print('ok')"
 ```
 
-If the import works with `python3` but Hueberry still reports that openrazer
-is missing, the first option is the fix.
+To update later, run `pipx reinstall hueberry` (or `pipx install --force ...`
+with the command above).
 
 ### Running from a source checkout
 
 ```sh
-git clone <repository-url> hueberry && cd hueberry
+git clone https://github.com/Erhearty/hueberry.git hueberry && cd hueberry
 python3 -m venv --system-site-packages .venv
 . .venv/bin/activate
 pip install -e .[macros]
@@ -153,9 +148,10 @@ Log out and back in so the new group membership takes effect.
 > do this on a machine where you accept that. To undo it, remove the rule file,
 > reload udev, and run `sudo gpasswd -d "$USER" input`.
 
-The rule file is not installed by pipx. If you installed Hueberry from PyPI
-and have no checkout, download `data/udev/70-hueberry-uinput.rules` from the
-project repository first.
+The rule file is not installed by pipx. If you installed Hueberry with pipx
+and have no checkout, clone the repository
+(`git clone https://github.com/Erhearty/hueberry.git`) or download
+`data/udev/70-hueberry-uinput.rules` from it first.
 
 ## 5. Launcher entry
 
@@ -229,7 +225,7 @@ distro or extensions.gnome.org) and enable it.
 
 **`import openrazer` fails, or Hueberry reports that openrazer is missing.**
 The pipx environment cannot see the distro module. Reinstall with
-`pipx install --system-site-packages hueberry` (see step 2). In a venv, create
+`pipx install --force --system-site-packages` and the source from step 2. In a venv, create
 it with `python3 -m venv --system-site-packages .venv`.
 
 **The daemon status shows an error, or no devices are found.**

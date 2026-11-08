@@ -28,7 +28,8 @@ see [LICENSE](LICENSE).
 Quick start, with the OpenRazer daemon already installed from your distro:
 
 ```sh
-pipx install --system-site-packages hueberry
+pipx install --system-site-packages \
+    "hueberry[macros] @ git+https://github.com/Erhearty/hueberry.git"
 hueberry
 ```
 
