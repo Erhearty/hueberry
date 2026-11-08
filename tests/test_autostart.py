@@ -41,6 +41,36 @@ def test_enable_python_module_fallback(config_home):
     assert _entry(autostart.autostart_path())["Exec"] == f"{PYTHON} -m hueberry --background"
 
 
+def test_enable_prefers_venv_sibling_script(config_home, tmp_path):
+    python = tmp_path / "venv" / "bin" / "python3"
+    script = python.with_name("hueberry")
+    script.parent.mkdir(parents=True)
+    script.write_text("#!/bin/sh\n", encoding="utf-8")
+    autostart.enable(which=lambda _name: None, python=str(python))
+    assert _entry(autostart.autostart_path())["Exec"] == f"{script} --background"
+
+
+def test_refresh_rewrites_stale_entry(config_home):
+    autostart.enable(which=lambda _name: None, python=PYTHON)
+    assert autostart.refresh_stale_entry(which=lambda _name: SCRIPT, python=PYTHON)
+    assert _entry(autostart.autostart_path())["Exec"] == f"{SCRIPT} --background"
+
+
+def test_refresh_leaves_current_entry_alone(config_home):
+    autostart.enable(which=lambda _name: SCRIPT)
+    before = autostart.autostart_path().read_text(encoding="utf-8")
+    assert not autostart.refresh_stale_entry(which=lambda _name: SCRIPT)
+    assert autostart.autostart_path().read_text(encoding="utf-8") == before
+
+
+def test_refresh_skips_foreign_file(config_home):
+    path = autostart.autostart_path()
+    path.parent.mkdir(parents=True)
+    path.write_text("[Desktop Entry]\nExec=something\n", encoding="utf-8")
+    assert not autostart.refresh_stale_entry(which=lambda _name: SCRIPT)
+    assert path.read_text(encoding="utf-8") == "[Desktop Entry]\nExec=something\n"
+
+
 def test_exec_quotes_path_with_spaces():
     line = autostart.exec_line(which=lambda _name: None, python='/opt/my env/bin/py"$%')
     assert line == '"/opt/my env/bin/py\\"\\$%%" -m hueberry --background'
